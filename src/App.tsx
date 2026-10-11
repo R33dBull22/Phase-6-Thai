@@ -10,6 +10,8 @@ import {
   addBatchToUserDeck,
   recordReviewResult,
   addVocabToUserDeck,
+  syncLocalVocabulariesToCloud,
+  subscribeToCommunityVocabularies,
 } from './services/vocabService';
 import { Navigation } from './components/Navigation';
 import { LearnView } from './components/LearnView';
@@ -139,6 +141,10 @@ function AppContent() {
   const loadAllData = async () => {
     setLoadingData(true);
     try {
+      // 1. Upload any locally created vocabularies to Firestore so all users see them
+      await syncLocalVocabulariesToCloud().catch(() => {});
+
+      // 2. Fetch all shared vocabularies from Firestore
       const vocabs = await fetchCommunityVocabularies();
       setVocabularies(vocabs);
 
@@ -163,6 +169,13 @@ function AppContent() {
   useEffect(() => {
     if (!authLoading) {
       loadAllData();
+
+      // Subscribe to real-time updates from Firestore so new/edited vocabularies appear immediately
+      const unsubscribe = subscribeToCommunityVocabularies((remoteVocabs) => {
+        setVocabularies(remoteVocabs);
+      });
+
+      return () => unsubscribe();
     }
   }, [authLoading, user?.uid]);
 

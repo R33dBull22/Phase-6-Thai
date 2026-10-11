@@ -24,11 +24,11 @@ service cloud.firestore {
     }
 
     function isValidVocabulary(data) {
-      return data.keys().hasAll(['german', 'thai', 'lesson', 'creatorId'])
+      return data.keys().hasAll(['german', 'thai', 'lesson'])
         && data.german is string && data.german.size() > 0 && data.german.size() <= 500
         && data.thai is string && data.thai.size() > 0 && data.thai.size() <= 500
         && data.lesson is string && data.lesson.size() > 0 && data.lesson.size() <= 100
-        && data.creatorId is string && data.creatorId.size() > 0 && data.creatorId.size() <= 128
+        && (!('creatorId' in data) || (data.creatorId is string && data.creatorId.size() <= 128))
         && (!('romanization' in data) || (data.romanization is string && data.romanization.size() <= 500))
         && (!('exampleThai' in data) || (data.exampleThai is string && data.exampleThai.size() <= 1000))
         && (!('exampleGerman' in data) || (data.exampleGerman is string && data.exampleGerman.size() <= 1000))
@@ -42,6 +42,7 @@ service cloud.firestore {
         && data.vocabId is string && data.vocabId.size() > 0 && data.vocabId.size() <= 128
         && data.phase is number && data.phase >= 1 && data.phase <= 6
         && data.nextReviewDate is string && data.nextReviewDate.size() > 0 && data.nextReviewDate.size() <= 50
+        && (!('id' in data) || (data.id is string && data.id.size() <= 128))
         && (!('lastReviewedAt' in data) || (data.lastReviewedAt is string && data.lastReviewedAt.size() <= 50))
         && (!('streak' in data) || data.streak is number)
         && (!('correctCount' in data) || data.correctCount is number)
@@ -49,31 +50,21 @@ service cloud.firestore {
         && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
     }
 
+    // Shared community vocabulary pool
     match /vocabularies/{vocabId} {
       allow get, list: if true;
-      allow create: if isSignedIn() && isValidId(vocabId)
-                    && incoming().creatorId == request.auth.uid
-                    && isValidVocabulary(incoming());
-      allow update: if isSignedIn() && isValidId(vocabId)
-                    && existing().creatorId == request.auth.uid
-                    && incoming().creatorId == request.auth.uid
-                    && isValidVocabulary(incoming());
-      allow delete: if isSignedIn() && isValidId(vocabId)
-                    && existing().creatorId == request.auth.uid;
+      allow create: if isValidId(vocabId) && isValidVocabulary(incoming());
+      allow update: if isValidId(vocabId) && isValidVocabulary(incoming());
+      allow delete: if isValidId(vocabId);
     }
 
+    // Individual learner spaced repetition progress
     match /user_progress/{progressId} {
-      allow get: if isSignedIn() && isValidId(progressId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(progressId)
-                    && incoming().userId == request.auth.uid
-                    && isValidUserProgress(incoming());
-      allow update: if isSignedIn() && isValidId(progressId)
-                    && existing().userId == request.auth.uid
-                    && incoming().userId == request.auth.uid
-                    && isValidUserProgress(incoming());
-      allow delete: if isSignedIn() && isValidId(progressId)
-                    && existing().userId == request.auth.uid;
+      allow get: if isValidId(progressId);
+      allow list: if true;
+      allow create: if isValidId(progressId) && isValidUserProgress(incoming());
+      allow update: if isValidId(progressId) && isValidUserProgress(incoming());
+      allow delete: if isValidId(progressId);
     }
   }
 }

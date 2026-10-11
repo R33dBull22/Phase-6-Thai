@@ -15,13 +15,14 @@
         "creatorName": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "maxLength": 50 }
       },
-      "required": ["german", "thai", "lesson", "creatorId"]
+      "required": ["german", "thai", "lesson"]
     },
     "userProgress": {
       "title": "UserProgress",
       "description": "User spaced repetition progress for a vocabulary item",
       "type": "object",
       "properties": {
+        "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "vocabId": { "type": "string", "maxLength": 128 },
         "phase": { "type": "number" },

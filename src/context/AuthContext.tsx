@@ -6,6 +6,8 @@ import {
   signOut,
   signInAnonymously,
   updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from 'firebase/auth';
 import { auth, testConnection } from '../firebase/config';
 
@@ -29,6 +31,7 @@ interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   isGuest: boolean;
+  loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (email: string, pass: string, displayName?: string) => Promise<void>;
   loginAsGuest: () => Promise<void>;
@@ -291,6 +294,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async () => {
+    setAuthError(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      const res = await signInWithPopup(auth, provider);
+      const authUser: AuthUser = {
+        uid: res.user.uid,
+        email: res.user.email,
+        displayName: res.user.displayName,
+        isAnonymous: false,
+        photoURL: res.user.photoURL,
+      };
+      setUser(authUser);
+      try {
+        localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
+      } catch {}
+      migrateGuestProgress(res.user.uid);
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user') {
+        return;
+      }
+      console.warn('Google sign-in error:', err);
+      const msg = err.message || 'Google-Anmeldung fehlgeschlagen.';
+      setAuthError(msg);
+      throw err;
+    }
+  };
+
   const loginAsGuest = async () => {
     setAuthError(null);
     try {
@@ -322,6 +353,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         isGuest: !user || Boolean(user.isAnonymous) || user.uid === 'local_guest',
+        loginWithGoogle,
         loginWithEmail,
         registerWithEmail,
         loginAsGuest,

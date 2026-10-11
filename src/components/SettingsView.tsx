@@ -193,6 +193,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Cloud Synchronization Status Card */}
+        <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1.5">
+              <Database className="w-4 h-4 text-[#FF7A00]" />
+              Gemeinsamer Cloud-Vokabelpool
+            </h2>
+            <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Echtzeit
+            </span>
+          </div>
+
+          <p className="text-xs text-[#A1A1AA] mb-3">
+            Alle erstellten Vokabeln werden automatisch in der Cloud gesichert und stehen allen Benutzern sofort zur Verfügung.
+          </p>
+
+          <div className="bg-[#1C1C1E] rounded-xl p-3 border border-[#3A3A3D] flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs text-[#8E8E93]">Aktive Vokabeln im Pool</p>
+              <p className="text-base font-bold text-white">{vocabularies.length} Vokabeln</p>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="py-1.5 px-3 rounded-lg bg-[#2C2C2E] hover:bg-[#38383B] text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#FF7A00]' : ''}`} />
+              <span>{isRefreshing ? 'Gleicht ab...' : 'Jetzt abgleichen'}</span>
+            </button>
+          </div>
+        </div>
+
         {/* 1-Click Export Section (Anti-Lock-in) */}
         <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
           <h2 className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider mb-2 flex items-center gap-1.5">
