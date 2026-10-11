@@ -1,0 +1,6 @@
+{
+  "name": "phase6 Thai - Vokabeltrainer",
+  "description": "Moderner Thai-Vokabeltrainer im minimalistischen phase6 iOS-Design mit 6-Phasen-Leitner-System, Community-Pool, Umschrift-Toggle und vollem CSV/JSON-Export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

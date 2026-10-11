@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "vocabulary": {
+      "title": "Vocabulary",
+      "description": "Thai-German vocabulary item in community pool",
+      "type": "object",
+      "properties": {
+        "german": { "type": "string", "maxLength": 500 },
+        "thai": { "type": "string", "maxLength": 500 },
+        "romanization": { "type": "string", "maxLength": 500 },
+        "lesson": { "type": "string", "maxLength": 100 },
+        "exampleThai": { "type": "string", "maxLength": 1000 },
+        "exampleGerman": { "type": "string", "maxLength": 1000 },
+        "creatorId": { "type": "string", "maxLength": 128 },
+        "creatorName": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["german", "thai", "lesson", "creatorId"]
+    },
+    "userProgress": {
+      "title": "UserProgress",
+      "description": "User spaced repetition progress for a vocabulary item",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "vocabId": { "type": "string", "maxLength": 128 },
+        "phase": { "type": "number" },
+        "nextReviewDate": { "type": "string", "maxLength": 50 },
+        "lastReviewedAt": { "type": "string", "maxLength": 50 },
+        "streak": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "incorrectCount": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["userId", "vocabId", "phase", "nextReviewDate"]
+    }
+  },
+  "firestore": {
+    "/vocabularies/{vocabId}": {
+      "schema": { "$ref": "#/entities/vocabulary" },
+      "description": "Community pool of Thai-German vocabularies"
+    },
+    "/user_progress/{progressId}": {
+      "schema": { "$ref": "#/entities/userProgress" },
+      "description": "Personal Leitner study progress for each vocabulary"
+    }
+  }
+}

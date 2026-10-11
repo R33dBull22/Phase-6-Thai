@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidVocabulary(data) {
+      return data.keys().hasAll(['german', 'thai', 'lesson', 'creatorId'])
+        && data.german is string && data.german.size() > 0 && data.german.size() <= 500
+        && data.thai is string && data.thai.size() > 0 && data.thai.size() <= 500
+        && data.lesson is string && data.lesson.size() > 0 && data.lesson.size() <= 100
+        && data.creatorId is string && data.creatorId.size() > 0 && data.creatorId.size() <= 128
+        && (!('romanization' in data) || (data.romanization is string && data.romanization.size() <= 500))
+        && (!('exampleThai' in data) || (data.exampleThai is string && data.exampleThai.size() <= 1000))
+        && (!('exampleGerman' in data) || (data.exampleGerman is string && data.exampleGerman.size() <= 1000))
+        && (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 128))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
+    }
+
+    function isValidUserProgress(data) {
+      return data.keys().hasAll(['userId', 'vocabId', 'phase', 'nextReviewDate'])
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.vocabId is string && data.vocabId.size() > 0 && data.vocabId.size() <= 128
+        && data.phase is number && data.phase >= 1 && data.phase <= 6
+        && data.nextReviewDate is string && data.nextReviewDate.size() > 0 && data.nextReviewDate.size() <= 50
+        && (!('lastReviewedAt' in data) || (data.lastReviewedAt is string && data.lastReviewedAt.size() <= 50))
+        && (!('streak' in data) || data.streak is number)
+        && (!('correctCount' in data) || data.correctCount is number)
+        && (!('incorrectCount' in data) || data.incorrectCount is number)
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    match /vocabularies/{vocabId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(vocabId)
+                    && incoming().creatorId == request.auth.uid
+                    && isValidVocabulary(incoming());
+      allow update: if isSignedIn() && isValidId(vocabId)
+                    && existing().creatorId == request.auth.uid
+                    && incoming().creatorId == request.auth.uid
+                    && isValidVocabulary(incoming());
+      allow delete: if isSignedIn() && isValidId(vocabId)
+                    && existing().creatorId == request.auth.uid;
+    }
+
+    match /user_progress/{progressId} {
+      allow get: if isSignedIn() && isValidId(progressId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(progressId)
+                    && incoming().userId == request.auth.uid
+                    && isValidUserProgress(incoming());
+      allow update: if isSignedIn() && isValidId(progressId)
+                    && existing().userId == request.auth.uid
+                    && incoming().userId == request.auth.uid
+                    && isValidUserProgress(incoming());
+      allow delete: if isSignedIn() && isValidId(progressId)
+                    && existing().userId == request.auth.uid;
+    }
+  }
+}
