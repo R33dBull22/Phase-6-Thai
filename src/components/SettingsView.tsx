@@ -569,7 +569,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32] sm:col-span-2">
                       <span className="text-amber-400 font-bold">7. Phase (1 bis 6)</span>
                       <p className="text-[#8E8E93] text-[10px]">
-                        Wird beim Import für <strong className="text-white">dein angemeldetes Profil</strong> direkt als Leitner-Phase übernommen (1–6). Bei anderen Benutzern starten importierte Wörter standardmäßig in Phase 1.
+                        Wird beim Import für <strong className="text-white">dein angemeldetes Profil</strong> direkt als Leitner-Phase übernommen (1–6). Die Vokabeln werden so behandelt, als wären sie gerade in diese Phase gekommen (also nicht sofort fällig, sondern erst nach dem entsprechenden Phasen-Intervall).
                       </p>
                     </div>
                   </div>

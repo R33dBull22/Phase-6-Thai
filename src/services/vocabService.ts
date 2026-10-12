@@ -579,7 +579,9 @@ export async function addVocabToUserDeck(
   const phase = initialPhase >= 1 && initialPhase <= 6 ? initialPhase : 1;
   const id = `${userId}_${vocabId}`;
   const now = new Date().toISOString();
-  const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
+  // When added or imported into a phase, card is treated as newly arrived in that phase:
+  // its review is scheduled according to the phase interval (not immediately due)
+  const nextReviewDate = calculateNextReviewDate(phase);
   const progress: UserProgress = {
     id,
     userId,
@@ -818,7 +820,8 @@ export async function addBatchToUserDeck(
     const cached = localStorage.getItem(key) || localStorage.getItem(`${LEGACY_PROGRESS_KEY}_${userId}`);
     const map = cached ? JSON.parse(cached) : {};
     for (const { vocabId, phase } of normalized) {
-      const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
+      // Card is treated as newly arrived in this phase: review is scheduled according to phase interval
+      const nextReviewDate = calculateNextReviewDate(phase);
       map[vocabId] = {
         id: `${userId}_${vocabId}`,
         userId,
@@ -840,7 +843,7 @@ export async function addBatchToUserDeck(
     for (const { vocabId, phase } of normalized) {
       const id = `${userId}_${vocabId}`;
       const ref = doc(db, PROGRESS_COLLECTION, id);
-      const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
+      const nextReviewDate = calculateNextReviewDate(phase);
       batch.set(ref, {
         id,
         userId,
