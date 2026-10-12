@@ -99,20 +99,68 @@ export function isCardDue(nextReviewDateStr: string): boolean {
 }
 
 /**
- * Format relative due time (e.g., "Heute fällig", "In 3 Tagen", "Überfällig")
+ * Format relative due time and calendar date (e.g., "Heute fällig", "Morgen fällig (13.10.)", "In 3 Tagen (15.10.)", "Überfällig (seit 2 Tagen)")
  */
-export function formatDueDate(dateStr: string): { label: string; isDue: boolean } {
-  if (!dateStr) return { label: 'Jetzt fällig', isDue: true };
+export function formatDueDate(dateStr?: string): {
+  label: string;
+  isDue: boolean;
+  dateFormatted: string;
+  daysDiff: number;
+} {
+  if (!dateStr) {
+    return {
+      label: 'Jetzt fällig',
+      isDue: true,
+      dateFormatted: 'Heute',
+      daysDiff: 0,
+    };
+  }
+
   const target = new Date(dateStr);
   const now = new Date();
-  const diffMs = target.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const dateFormatted = target.toLocaleDateString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: target.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  });
 
-  if (diffMs <= 0) {
-    return { label: 'Heute fällig', isDue: true };
+  // Calculate midnight diff to avoid timezone shift inconsistencies
+  const targetMidnight = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diffDays = Math.round((targetMidnight - nowMidnight) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    const overdueDays = Math.abs(diffDays);
+    return {
+      label: overdueDays === 1 ? 'Gestern fällig' : `Überfällig (${overdueDays} T.)`,
+      isDue: true,
+      dateFormatted,
+      daysDiff: diffDays,
+    };
   }
+
+  if (diffDays === 0) {
+    return {
+      label: 'Heute fällig',
+      isDue: true,
+      dateFormatted,
+      daysDiff: 0,
+    };
+  }
+
   if (diffDays === 1) {
-    return { label: 'Morgen fällig', isDue: false };
+    return {
+      label: `Morgen (${dateFormatted})`,
+      isDue: false,
+      dateFormatted,
+      daysDiff: 1,
+    };
   }
-  return { label: `In ${diffDays} Tagen`, isDue: false };
+
+  return {
+    label: `In ${diffDays} Tagen (${dateFormatted})`,
+    isDue: false,
+    dateFormatted,
+    daysDiff: diffDays,
+  };
 }

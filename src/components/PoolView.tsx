@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
 import { speakThai } from '../utils/thaiAudio';
-import { PHASES } from '../utils/leitner';
+import { PHASES, formatDueDate, isCardDue } from '../utils/leitner';
 import { EditVocabModal } from './EditVocabModal';
 
 interface PoolViewProps {
@@ -59,10 +59,18 @@ export const PoolView: React.FC<PoolViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedLessons, setExpandedLessons] = useState<Record<string, boolean>>({});
-  const [filterMode, setFilterMode] = useState<'all' | 'in_deck' | 'not_in_deck'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'in_deck' | 'not_in_deck' | 'due'>('all');
   const [isAddingToDeck, setIsAddingToDeck] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [editingVocab, setEditingVocab] = useState<Vocabulary | null>(null);
+
+  // Due vocabs count
+  const dueVocabsCount = useMemo(() => {
+    return vocabularies.filter((v) => {
+      const prog = progressMap[v.id];
+      return prog && isCardDue(prog.nextReviewDate);
+    }).length;
+  }, [vocabularies, progressMap]);
 
   // Phase manipulation states
   const [stepBackConfirmLesson, setStepBackConfirmLesson] = useState<string | null>(null);
@@ -106,6 +114,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
       const inDeck = Boolean(progressMap[v.id]);
       if (filterMode === 'in_deck' && !inDeck) return;
       if (filterMode === 'not_in_deck' && inDeck) return;
+      if (filterMode === 'due' && (!inDeck || !isCardDue(progressMap[v.id]?.nextReviewDate))) return;
 
       const lessonName = v.lesson || 'Allgemein';
       if (!map[lessonName]) map[lessonName] = [];
@@ -377,6 +386,21 @@ export const PoolView: React.FC<PoolViewProps> = ({
         >
           Noch nicht gelernt ({Math.max(0, vocabularies.length - Object.keys(progressMap).length)})
         </button>
+        <button
+          onClick={() => setFilterMode('due')}
+          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            filterMode === 'due'
+              ? 'bg-amber-500 text-black font-semibold'
+              : 'bg-[#242426] text-amber-400 border border-amber-500/30'
+          }`}
+        >
+          <span>⚡ Fällig zur Abfrage</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+            filterMode === 'due' ? 'bg-black text-amber-400' : 'bg-amber-500/20 text-amber-300'
+          }`}>
+            {dueVocabsCount}
+          </span>
+        </button>
       </div>
 
       {/* Course Header Banner */}
@@ -579,13 +603,30 @@ export const PoolView: React.FC<PoolViewProps> = ({
 
                             {/* Phase pill if in deck */}
                             {inDeck ? (
-                              <span
-                                className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white ${
-                                  PHASES[prog.phase]?.badgeBg || 'bg-gray-600'
-                                }`}
-                              >
-                                P{prog.phase}
-                              </span>
+                              <div className="flex flex-col items-end">
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white ${
+                                    PHASES[prog.phase]?.badgeBg || 'bg-gray-600'
+                                  }`}
+                                >
+                                  P{prog.phase}
+                                </span>
+                                {(() => {
+                                  const dueInfo = formatDueDate(prog.nextReviewDate);
+                                  return (
+                                    <span
+                                      className={`text-[9px] mt-0.5 font-medium whitespace-nowrap ${
+                                        dueInfo.isDue
+                                          ? 'text-amber-400 font-semibold'
+                                          : 'text-[#8E8E93]'
+                                      }`}
+                                      title={`Nächste Abfrage: ${dueInfo.dateFormatted}`}
+                                    >
+                                      {dueInfo.label}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             ) : (
                               <span className="text-[10px] bg-[#323236] text-[#8E8E93] px-1.5 py-0.5 rounded">
                                 Neu
