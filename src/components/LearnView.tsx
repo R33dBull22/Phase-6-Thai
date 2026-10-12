@@ -9,11 +9,11 @@ import {
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
-import { Vocabulary, UserProgress } from '../types/vocab';
-import { isCardDue } from '../utils/leitner';
+import { Vocabulary, UserProgress, QueryDirection } from '../types/vocab';
+import { isCardDue, isDirectionDue, getDirectionProgress } from '../utils/leitner';
 import { ReportsModal } from './ReportsModal';
 import { StudySummaryModal } from './StudySummaryModal';
-import { StudyMode, StudyDirection, StudyInputMethod } from './StudySession';
+import { StudyMode, StudyDirection, StudyInputMethod, StudyCardItem } from './StudySession';
 
 interface LearnViewProps {
   vocabularies: Vocabulary[];
@@ -27,7 +27,7 @@ interface LearnViewProps {
     inputMethod: StudyInputMethod
   ) => void;
   onStartSession: (
-    cards: { vocab: Vocabulary; progress?: UserProgress }[],
+    cards: StudyCardItem[],
     mode: StudyMode,
     direction: StudyDirection,
     inputMethod?: StudyInputMethod
@@ -48,37 +48,73 @@ export const LearnView: React.FC<LearnViewProps> = ({
   onNavigateCreate,
 }) => {
   const [showReports, setShowReports] = useState(false);
-  const [customizeModalCards, setCustomizeModalCards] = useState<
-    { vocab: Vocabulary; progress?: UserProgress }[] | null
-  >(null);
+  const [customizeModalCards, setCustomizeModalCards] = useState<StudyCardItem[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Cards in deck
   const deckVocabs = vocabularies.filter((v) => progressMap[v.id]);
 
-  // Due cards (strictly due today or overdue based on Leitner intervals)
-  const dueCards = deckVocabs
-    .filter((v) => {
-      const prog = progressMap[v.id];
-      return isCardDue(prog?.nextReviewDate || '');
-    })
-    .map((v) => ({ vocab: v, progress: progressMap[v.id] }));
+  // Due cards: each direction is evaluated independently!
+  const dueCards: StudyCardItem[] = [];
+  deckVocabs.forEach((v) => {
+    const prog = progressMap[v.id];
+    if (!prog) return;
 
-  // New vocabularies: In deck, in Phase 1, never reviewed yet or streak = 0
-  const newVocabCards = deckVocabs
-    .filter((v) => {
-      const prog = progressMap[v.id];
-      if (!prog) return false;
-      const isNew = prog.phase === 1 && (!prog.lastReviewedAt || prog.streak === 0);
-      return isNew && isCardDue(prog.nextReviewDate);
-    })
-    .map((v) => ({ vocab: v, progress: progressMap[v.id] }));
+    if (studyDirection === 'de_to_th') {
+      if (isDirectionDue(prog, 'de_to_th')) {
+        dueCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
+      }
+    } else if (studyDirection === 'th_to_de') {
+      if (isDirectionDue(prog, 'th_to_de')) {
+        dueCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
+      }
+    } else {
+      // Both directions: check both independently
+      if (isDirectionDue(prog, 'de_to_th')) {
+        dueCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
+      }
+      if (isDirectionDue(prog, 'th_to_de')) {
+        dueCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
+      }
+    }
+  });
+
+  // New vocabularies: In deck, in Phase 1 for the tested direction, never reviewed yet or streak = 0
+  const newVocabCards: StudyCardItem[] = [];
+  deckVocabs.forEach((v) => {
+    const prog = progressMap[v.id];
+    if (!prog) return;
+
+    if (studyDirection === 'de_to_th' || studyDirection === 'both') {
+      const deProg = getDirectionProgress(prog, 'de_to_th');
+      if (deProg.phase === 1 && (!deProg.lastReviewedAt || deProg.streak === 0) && isDirectionDue(prog, 'de_to_th')) {
+        newVocabCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
+      }
+    }
+    if (studyDirection === 'th_to_de' || studyDirection === 'both') {
+      const thProg = getDirectionProgress(prog, 'th_to_de');
+      if (thProg.phase === 1 && (!thProg.lastReviewedAt || thProg.streak === 0) && isDirectionDue(prog, 'th_to_de')) {
+        newVocabCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
+      }
+    }
+  });
 
   // All cards in deck for voluntary practice
-  const allDeckCards = deckVocabs.map((v) => ({
-    vocab: v,
-    progress: progressMap[v.id],
-  }));
+  const allDeckCards: StudyCardItem[] = [];
+  deckVocabs.forEach((v, idx) => {
+    const prog = progressMap[v.id];
+    if (studyDirection === 'de_to_th') {
+      allDeckCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
+    } else if (studyDirection === 'th_to_de') {
+      allDeckCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
+    } else {
+      allDeckCards.push({
+        vocab: v,
+        progress: prog,
+        direction: idx % 2 === 0 ? 'de_to_th' : 'th_to_de',
+      });
+    }
+  });
 
   const dueCount = dueCards.length;
   const newCount = newVocabCards.length;
@@ -90,7 +126,7 @@ export const LearnView: React.FC<LearnViewProps> = ({
   };
 
   // Direct start using saved preferences - NO dialog interruption!
-  const handleDirectStart = (cards: { vocab: Vocabulary; progress?: UserProgress }[]) => {
+  const handleDirectStart = (cards: StudyCardItem[]) => {
     if (cards.length === 0) {
       if (totalDeckCount === 0) {
         onNavigatePool();

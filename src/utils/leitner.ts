@@ -1,4 +1,4 @@
-import { PhaseConfig } from '../types/vocab';
+import { PhaseConfig, UserProgress, DirectionProgress, QueryDirection } from '../types/vocab';
 
 export const PHASES: Record<number, PhaseConfig> = {
   1: {
@@ -163,4 +163,58 @@ export function formatDueDate(dateStr?: string): {
     dateFormatted,
     daysDiff: diffDays,
   };
+}
+
+/**
+ * Returns the DirectionProgress for a specific query direction ('de_to_th' or 'th_to_de').
+ * Gracefully falls back to overall legacy progress if directional progress is not yet set.
+ */
+export function getDirectionProgress(
+  prog: UserProgress | undefined,
+  direction: QueryDirection
+): DirectionProgress {
+  const dirKey = direction === 'de_to_th' ? 'deToTh' : 'thToDe';
+  const existingDir = prog ? prog[dirKey] : undefined;
+
+  if (existingDir && typeof existingDir.phase === 'number') {
+    return {
+      phase: Math.max(1, Math.min(6, existingDir.phase)),
+      nextReviewDate: existingDir.nextReviewDate || prog?.nextReviewDate || new Date().toISOString(),
+      lastReviewedAt: existingDir.lastReviewedAt || prog?.lastReviewedAt,
+      streak: existingDir.streak ?? 0,
+      correctCount: existingDir.correctCount ?? 0,
+      incorrectCount: existingDir.incorrectCount ?? 0,
+    };
+  }
+
+  // Fallback to legacy progress fields or default Phase 1
+  const fallbackPhase = prog?.phase && prog.phase >= 1 && prog.phase <= 6 ? prog.phase : 1;
+  return {
+    phase: fallbackPhase,
+    nextReviewDate: prog?.nextReviewDate || new Date().toISOString(),
+    lastReviewedAt: prog?.lastReviewedAt,
+    streak: prog?.streak ?? 0,
+    correctCount: prog?.correctCount ?? 0,
+    incorrectCount: prog?.incorrectCount ?? 0,
+  };
+}
+
+/**
+ * Checks whether a vocabulary item is due in a specific direction
+ */
+export function isDirectionDue(
+  prog: UserProgress | undefined,
+  direction: QueryDirection
+): boolean {
+  if (!prog) return false;
+  const dirProg = getDirectionProgress(prog, direction);
+  return isCardDue(dirProg.nextReviewDate);
+}
+
+/**
+ * Checks whether a vocabulary item is due in either direction
+ */
+export function isAnyDirectionDue(prog: UserProgress | undefined): boolean {
+  if (!prog) return false;
+  return isDirectionDue(prog, 'de_to_th') || isDirectionDue(prog, 'th_to_de');
 }

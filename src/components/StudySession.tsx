@@ -18,8 +18,8 @@ import {
   Pencil,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Vocabulary, UserProgress } from '../types/vocab';
-import { PHASES } from '../utils/leitner';
+import { Vocabulary, UserProgress, QueryDirection } from '../types/vocab';
+import { PHASES, getDirectionProgress } from '../utils/leitner';
 import { speakThai } from '../utils/thaiAudio';
 import { EditVocabModal } from './EditVocabModal';
 
@@ -27,13 +27,19 @@ export type StudyMode = 'preview_first' | 'skip_preview';
 export type StudyDirection = 'de_to_th' | 'both' | 'th_to_de';
 export type StudyInputMethod = 'typing' | 'flashcard';
 
+export interface StudyCardItem {
+  vocab: Vocabulary;
+  progress?: UserProgress;
+  direction?: QueryDirection;
+}
+
 interface StudySessionProps {
-  cards: { vocab: Vocabulary; progress?: UserProgress }[];
+  cards: StudyCardItem[];
   mode: StudyMode;
   direction: StudyDirection;
   inputMethod?: StudyInputMethod;
   onFinish: () => void;
-  onAnswer: (vocabId: string, isCorrect: boolean) => Promise<UserProgress>;
+  onAnswer: (vocabId: string, isCorrect: boolean, direction: QueryDirection) => Promise<UserProgress>;
   defaultHideRomanization?: boolean;
   acceptRomanizationTyping?: boolean;
   onUpdateVocab?: (id: string, updatedData: Partial<Omit<Vocabulary, 'id' | 'createdAt'>>) => Promise<void>;
@@ -106,14 +112,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
   existingLessons = [],
 }) => {
   // Session queue: wrong cards are pushed to the end so they are repeated
-  const [cardQueue, setCardQueue] = useState<{ vocab: Vocabulary; progress?: UserProgress }[]>(() => [...initialCards]);
+  const [cardQueue, setCardQueue] = useState<StudyCardItem[]>(() => [...initialCards]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Set of vocab IDs that have been answered correctly during this session
-  const [masteredVocabIds, setMasteredVocabIds] = useState<Set<string>>(new Set());
+  // Set of task keys (vocabId_direction) that have been answered correctly during this session
+  const [masteredTaskKeys, setMasteredTaskKeys] = useState<Set<string>>(new Set());
   const [editingCurrentVocab, setEditingCurrentVocab] = useState(false);
 
-  // Total unique vocabs to master in this session
+  // Total unique vocabs/directions to master in this session
   const totalUniqueCount = initialCards.length;
 
   const [currentInputMethod, setCurrentInputMethod] = useState<StudyInputMethod>(inputMethod);
@@ -133,7 +139,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
     correctCount: number;
     incorrectCount: number;
     promotedToPhase6: number;
-    reviewedCards: { vocab: Vocabulary; isCorrect: boolean; newPhase: number }[];
+    reviewedCards: { vocab: Vocabulary; isCorrect: boolean; newPhase: number; direction: QueryDirection }[];
   }>({
     correctCount: 0,
     incorrectCount: 0,
@@ -146,15 +152,26 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const currentItem = cardQueue[currentIndex];
   const vocab = currentItem?.vocab;
   const progress = currentItem?.progress;
-  const currentPhase = progress?.phase || 1;
 
-  // Determine current card direction: if 'both', alternate
-  const isDeToThai =
-    direction === 'de_to_th'
-      ? true
+  // Determine current card direction: item-specific direction has priority, otherwise based on session direction
+  const activeDirection: QueryDirection =
+    currentItem?.direction ||
+    (direction === 'de_to_th'
+      ? 'de_to_th'
       : direction === 'th_to_de'
-      ? false
-      : currentIndex % 2 === 0;
+      ? 'th_to_de'
+      : currentIndex % 2 === 0
+      ? 'de_to_th'
+      : 'th_to_de');
+
+  const isDeToThai = activeDirection === 'de_to_th';
+  const otherDirection: QueryDirection = isDeToThai ? 'th_to_de' : 'de_to_th';
+
+  const dirProgress = getDirectionProgress(progress, activeDirection);
+  const otherDirProgress = getDirectionProgress(progress, otherDirection);
+  const currentPhase = dirProgress.phase;
+
+  const currentTaskKey = vocab ? `${vocab.id}_${activeDirection}` : '';
 
   // Auto-focus input when card changes
   useEffect(() => {
@@ -204,9 +221,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setIsSubmitting(true);
 
     try {
-      const updated = await onAnswer(vocab.id, isCorrect);
+      const updated = await onAnswer(vocab.id, isCorrect, activeDirection);
 
-      const hitPhase6 = isCorrect && updated.phase === 6 && (progress?.phase || 1) < 6;
+      const updatedDirProg = getDirectionProgress(updated, activeDirection);
+      const hitPhase6 = isCorrect && updatedDirProg.phase === 6 && currentPhase < 6;
       if (hitPhase6) {
         confetti({
           particleCount: 50,
@@ -215,11 +233,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
         });
       }
 
-      const isMasteredBefore = masteredVocabIds.has(vocab.id);
-      const isNowMastered = isCorrect || isMasteredBefore;
+      const isMasteredBefore = masteredTaskKeys.has(currentTaskKey);
 
       if (isCorrect && !isMasteredBefore) {
-        setMasteredVocabIds((prev) => new Set(prev).add(vocab.id));
+        setMasteredTaskKeys((prev) => new Set(prev).add(currentTaskKey));
       }
 
       setSessionResults((prev) => ({
@@ -228,16 +245,20 @@ export const StudySession: React.FC<StudySessionProps> = ({
         promotedToPhase6: prev.promotedToPhase6 + (hitPhase6 ? 1 : 0),
         reviewedCards: [
           ...prev.reviewedCards,
-          { vocab, isCorrect, newPhase: updated.phase },
+          {
+            vocab,
+            isCorrect,
+            newPhase: updatedDirProg.phase,
+            direction: activeDirection,
+          },
         ],
       }));
 
-      // If answered incorrectly: card re-enters the study queue at the end!
-      // Its progress phase is updated in the re-enqueued card item.
+      // If answered incorrectly: card re-enters the study queue at the end with the same direction!
       if (!isCorrect) {
         setCardQueue((prev) => [
           ...prev,
-          { vocab, progress: updated },
+          { vocab, progress: updated, direction: activeDirection },
         ]);
       }
 
@@ -245,8 +266,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
       // Session finishes when ALL unique cards in this session have been answered correctly at least once,
       // and we have reached the end of the current queue (taking into account the freshly re-enqueued card if wrong).
       const newMasteredCount = (!isMasteredBefore && isCorrect)
-        ? masteredVocabIds.size + 1
-        : masteredVocabIds.size;
+        ? masteredTaskKeys.size + 1
+        : masteredTaskKeys.size;
 
       const hasNextInQueue = !isCorrect || (currentIndex + 1 < cardQueue.length);
 
@@ -314,12 +335,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
             </span>
             <div className="space-y-2">
               {sessionResults.reviewedCards.map((rc, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs py-1 border-b border-[#2C2C2E]/60 last:border-none">
-                  <div>
-                    <span className="font-medium text-white">{rc.vocab.german}</span>
-                    <span className="text-[#8E8E93] ml-2 font-thai">{rc.vocab.thai}</span>
+                <div key={idx} className="flex items-center justify-between text-xs py-1.5 border-b border-[#2C2C2E]/60 last:border-none">
+                  <div className="flex items-center gap-2 truncate pr-2">
+                    <span className="text-[10px] bg-[#242426] text-[#FF7A00] px-1.5 py-0.5 rounded font-mono shrink-0">
+                      {rc.direction === 'de_to_th' ? '🇩🇪➔🇹🇭' : '🇹🇭➔🇩🇪'}
+                    </span>
+                    <span className="font-medium text-white truncate">{rc.vocab.german}</span>
+                    <span className="text-[#8E8E93] ml-1 font-thai truncate">{rc.vocab.thai}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                       PHASES[rc.newPhase]?.badgeBg || 'bg-gray-600'
                     }`}>
@@ -360,7 +384,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
       <div className="max-w-md w-full mx-auto">
         <div className="flex items-center gap-3 pt-2 pb-4">
           {/* Phase Badge */}
-          <div className="w-7 text-center">
+          <div className="w-8 text-center" title={`Aktuelle Richtung (${isDeToThai ? 'DE ➔ TH' : 'TH ➔ DE'}): Phase ${currentPhase}`}>
             <span className="text-base font-bold text-[#FF7A00]">
               {currentPhase}
             </span>
@@ -371,7 +395,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
             <div
               className="h-full bg-[#FF7A00] transition-all duration-300 rounded-full"
               style={{
-                width: `${totalUniqueCount > 0 ? (masteredVocabIds.size / totalUniqueCount) * 100 : 0}%`,
+                width: `${totalUniqueCount > 0 ? (masteredTaskKeys.size / totalUniqueCount) * 100 : 0}%`,
               }}
             />
           </div>
@@ -379,7 +403,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
           {/* Counter: richtig beantwortet / gesamt */}
           <div className="flex items-center gap-2.5">
             <span className="text-xs font-medium text-[#8E8E93]" title="Richtig gewusst / Gesamt">
-              <span className="text-emerald-400 font-bold">{masteredVocabIds.size}</span> / {totalUniqueCount}
+              <span className="text-emerald-400 font-bold">{masteredTaskKeys.size}</span> / {totalUniqueCount}
             </span>
 
             {/* Switch between typing and flashcard mode */}
@@ -422,17 +446,28 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingCurrentVocab(true)}
-                  className="p-1 rounded-full text-[#8E8E93] hover:text-[#FF7A00] transition-colors"
+                  className="p-1 rounded-full text-[#8E8E93] hover:text-[#FF7A00] transition-colors cursor-pointer"
                   title="Diese Vokabel bearbeiten"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
               )}
-              <span className="text-[10px] bg-[#3A3A3D] text-[#FF7A00] px-2 py-0.5 rounded-full font-medium">
-                {isTyping ? 'Schreibabfrage' : 'Aufdecken'}
+              <span className="text-[10px] bg-[#3A3A3D] text-[#FF7A00] px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                {isDeToThai ? '🇩🇪 ➔ 🇹🇭' : '🇹🇭 ➔ 🇩🇪'}
               </span>
-              <span className="text-[11px] bg-[#3A3A3D] text-[#D1D1D6] px-2 py-0.5 rounded-full">
-                Phase {currentPhase}
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white ${
+                  PHASES[currentPhase]?.badgeBg || 'bg-[#3A3A3D]'
+                }`}
+                title={`Aktuelle Richtung (${isDeToThai ? 'DE ➔ TH' : 'TH ➔ DE'}): Phase ${currentPhase}`}
+              >
+                P{currentPhase}
+              </span>
+              <span
+                className="text-[10px] bg-[#242426] text-[#8E8E93] px-1.5 py-0.5 rounded-full hidden sm:inline"
+                title={`Gegenrichtung (${isDeToThai ? 'TH ➔ DE' : 'DE ➔ TH'}): Phase ${otherDirProgress.phase}`}
+              >
+                {isDeToThai ? 'TH➔DE' : 'DE➔TH'}: P{otherDirProgress.phase}
               </span>
             </div>
           </div>

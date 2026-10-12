@@ -11,17 +11,32 @@ export interface Vocabulary {
   createdAt: string;
 }
 
-export interface UserProgress {
-  id: string;               // Document ID (typically `${userId}_${vocabId}`)
-  userId: string;
-  vocabId: string;
+export type QueryDirection = 'de_to_th' | 'th_to_de';
+
+export interface DirectionProgress {
   phase: number;            // 1 bis 6 (Phase 6 = Langzeitgedächtnis)
   nextReviewDate: string;   // ISO String (YYYY-MM-DD or full ISO)
   lastReviewedAt?: string;  // ISO String
   streak: number;
   correctCount: number;
   incorrectCount: number;
+}
+
+export interface UserProgress {
+  id: string;               // Document ID (typically `${userId}_${vocabId}`)
+  userId: string;
+  vocabId: string;
+  phase: number;            // 1 bis 6 (Gesamt/Fallback)
+  nextReviewDate: string;   // ISO String (YYYY-MM-DD or full ISO)
+  lastReviewedAt?: string;  // ISO String
+  streak: number;
+  correctCount: number;
+  incorrectCount: number;
   updatedAt: string;
+
+  // Unabhängige Lernrichtungen:
+  deToTh?: DirectionProgress; // Deutsch ➔ Thai
+  thToDe?: DirectionProgress; // Thai ➔ Deutsch
 }
 
 export interface CardWithProgress {
