@@ -14,6 +14,8 @@ import { isCardDue, isDirectionDue, getDirectionProgress } from '../utils/leitne
 import { ReportsModal } from './ReportsModal';
 import { StudySummaryModal } from './StudySummaryModal';
 import { StudyMode, StudyDirection, StudyInputMethod, StudyCardItem } from './StudySession';
+import watArunJpg from '../assets/images/wat_arun_bangkok.jpg';
+import watArunWebp from '../assets/images/wat_arun_bangkok.webp';
 
 interface LearnViewProps {
   vocabularies: Vocabulary[];
@@ -176,16 +178,23 @@ export const LearnView: React.FC<LearnViewProps> = ({
         <div className="grid grid-cols-12 gap-3 mb-5">
           {/* Left Course Card */}
           <div className="col-span-7 flex flex-col">
-            <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] shadow-lg flex items-center justify-center group">
-              {/* Background Wat Arun image */}
-              <img
-                src="/src/assets/images/wat_arun_bangkok_1791796492408.jpg"
-                alt="Wat Arun Bangkok"
-                referrerPolicy="no-referrer"
-                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              />
+            <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] shadow-lg flex items-center justify-center group isolate transform-gpu">
+              {/* Background Wat Arun image optimized for Safari and iOS */}
+              <picture className="absolute inset-0 w-full h-full pointer-events-none">
+                <source srcSet={watArunWebp} type="image/webp" />
+                <img
+                  src={watArunJpg}
+                  alt="Wat Arun Bangkok"
+                  loading="eager"
+                  decoding="async"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/images/wat_arun_bangkok.jpg';
+                  }}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                />
+              </picture>
               {/* Gradient overlays for optimal readability */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/35" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/35 pointer-events-none" />
 
               <div className="text-center p-4 relative z-10">
                 <span className="text-4xl block mb-2 drop-shadow-md">🇹🇭</span>

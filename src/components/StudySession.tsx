@@ -715,27 +715,40 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
         {/* CASE 2: Typing mode, evaluated */}
         {isTyping && isEvaluated && (
-          <div className="grid grid-cols-2 gap-3">
-            {/* Roter Pfeil: Nicht gewusst / Wiederholen */}
-            <button
-              onClick={() => handleRate(false)}
-              disabled={isSubmitting}
-              className="py-4 rounded-full bg-[#242426] border border-rose-500/40 text-rose-400 font-semibold text-sm hover:bg-[#2C2C2E] hover:border-rose-500 transition-colors active:scale-[0.99] flex items-center justify-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4 text-rose-400 stroke-[2.5]" />
-              <span>Nicht gewusst</span>
-            </button>
-
-            {/* Grüner Pfeil: Gelten lassen / Gewusst */}
+          isTypingCorrect ? (
+            /* Vokabel genau so eingegeben wie in der Lösung -> Nur der Button "Gewusst" */
             <button
               onClick={() => handleRate(true)}
               disabled={isSubmitting}
-              className="py-4 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/25 transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+              className="w-full py-4 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-base shadow-lg shadow-emerald-500/25 transition-all active:scale-[0.99] flex items-center justify-center gap-2"
             >
-              <span>{isTypingCorrect ? 'Gewusst' : 'Gelten lassen'}</span>
-              <ArrowRight className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+              <CheckCircle2 className="w-5 h-5 text-white stroke-[2.5]" />
+              <span>Gewusst</span>
+              <ArrowRight className="w-4 h-4 text-white stroke-[2.5]" />
             </button>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {/* Roter Pfeil: Nicht gewusst / Wiederholen */}
+              <button
+                onClick={() => handleRate(false)}
+                disabled={isSubmitting}
+                className="py-4 rounded-full bg-[#242426] border border-rose-500/40 text-rose-400 font-semibold text-sm hover:bg-[#2C2C2E] hover:border-rose-500 transition-colors active:scale-[0.99] flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4 text-rose-400 stroke-[2.5]" />
+                <span>Nicht gewusst</span>
+              </button>
+
+              {/* Grüner Pfeil: Gelten lassen */}
+              <button
+                onClick={() => handleRate(true)}
+                disabled={isSubmitting}
+                className="py-4 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/25 transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+              >
+                <span>Gelten lassen</span>
+                <ArrowRight className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+              </button>
+            </div>
+          )
         )}
 
         {/* CASE 3: Flashcard mode / Thai -> Deutsch (Lösung anzeigen -> roter/grüner Pfeil) */}
@@ -761,13 +774,13 @@ export const StudySession: React.FC<StudySessionProps> = ({
               <span>Nicht gewusst</span>
             </button>
 
-            {/* Grüner Pfeil: Gelten lassen / Gewusst */}
+            {/* Grüner Pfeil: Gewusst */}
             <button
               onClick={() => handleRate(true)}
               disabled={isSubmitting}
               className="py-4 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/25 transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
             >
-              <span>Gelten lassen</span>
+              <span>Gewusst</span>
               <ArrowRight className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
             </button>
           </div>
