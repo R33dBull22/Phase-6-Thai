@@ -219,11 +219,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
     handlePlayAudio();
   };
 
-  const handleInsertThaiChar = (char: string) => {
-    setUserInput((prev) => prev + char);
-    inputRef.current?.focus();
-  };
-
   const handleRate = async (isCorrect: boolean) => {
     if (!vocab || isSubmitting) return;
     setIsSubmitting(true);
@@ -631,28 +626,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
       <div className="max-w-md w-full mx-auto pt-2 pb-1 sm:pb-3">
         {/* CASE 1: Typing mode, not yet submitted */}
         {isTyping && !isEvaluated && (
-          <div className="space-y-2">
-            {/* Thai Tone Marks Helper Row (when typing Thai script) */}
-            {isDeToThai && (
-              <div className="flex items-center justify-center gap-1.5 overflow-x-auto py-0.5">
-                <span className="text-[10px] text-[#71717A] mr-1 select-none">Tonzeichen:</span>
-                {['่', '้', '๊', '๋', '์', '็'].map((char) => (
-                  <button
-                    key={char}
-                    type="button"
-                    onClick={() => handleInsertThaiChar(char)}
-                    className="w-7 h-7 bg-[#242426] hover:bg-[#323236] border border-[#3A3A3D] rounded-lg text-sm font-thai text-white flex items-center justify-center active:scale-95 transition-all"
-                  >
-                    {char}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Input Row matching IMG_6357.png */}
-            <div className="flex items-center gap-2.5">
-              {/* Input Pill Container with Speech bubble button inside */}
-              <div className="flex-1 flex items-center bg-[#28282A] border border-[#38383A] focus-within:border-[#FF7A00] rounded-2xl px-2 py-1.5 transition-colors shadow-inner">
+          <div className="flex items-center gap-2.5">
+            {/* Input Pill Container with Speech bubble button inside */}
+            <div className="flex-1 flex items-center bg-[#28282A] border border-[#38383A] focus-within:border-[#FF7A00] rounded-2xl px-2 py-1.5 transition-colors shadow-inner">
                 {/* Speech Bubble Icon (Beispielsatz) */}
                 <button
                   type="button"
@@ -715,7 +691,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 <Send className="w-5 h-5 -rotate-45 ml-0.5" />
               </button>
             </div>
-          </div>
         )}
 
         {/* CASE 2: Typing mode, evaluated */}
