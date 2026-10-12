@@ -34,6 +34,20 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["userId", "vocabId", "phase", "nextReviewDate"]
+    },
+    "appUser": {
+      "title": "AppUser",
+      "description": "Registered user account with hashed credentials",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "passwordHash": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "email", "passwordHash"]
     }
   },
   "firestore": {
@@ -44,6 +58,10 @@
     "/user_progress/{progressId}": {
       "schema": { "$ref": "#/entities/userProgress" },
       "description": "Personal Leitner study progress for each vocabulary"
+    },
+    "/app_users/{userDocId}": {
+      "schema": { "$ref": "#/entities/appUser" },
+      "description": "Registered app accounts"
     }
   }
 }

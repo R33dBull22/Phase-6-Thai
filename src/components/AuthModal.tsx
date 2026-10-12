@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, Check, Eye, EyeOff, ShieldCheck, KeyRound, ArrowLeft, HelpCircle } from 'lucide-react';
+import {
+  X,
+  Lock,
+  Mail,
+  User,
+  Check,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  KeyRound,
+  ArrowLeft,
+  Zap,
+  AlertTriangle,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthModalProps {
@@ -15,12 +28,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
     loginWithGoogle,
     loginWithEmail,
     registerWithEmail,
+    resetPasswordDirect,
+    requestPasswordResetEmail,
     resetPasswordWithEmail,
     authError,
     clearAuthError,
   } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>('login');
+  const [forgotTab, setForgotTab] = useState<'direct' | 'email'>('direct');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [registrationCode, setRegistrationCode] = useState('');
@@ -32,7 +48,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [showDirectResetFields, setShowDirectResetFields] = useState(false);
 
   if (!isOpen) return null;
 
@@ -49,7 +64,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
     setLocalError(null);
     setSuccessMessage(null);
     clearAuthError();
-    setShowDirectResetFields(false);
+    if (newMode === 'forgot_password') {
+      setForgotTab('direct');
+    }
   };
 
   const handleGoogle = async () => {
@@ -78,13 +95,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
     setSuccessMessage(null);
     clearAuthError();
 
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       setLocalError('Bitte gib eine gültige E-Mail-Adresse ein.');
       return;
     }
 
-    if (showDirectResetFields) {
+    if (forgotTab === 'direct') {
       if (!registrationCode.trim()) {
         setLocalError('Bitte gib das Registrierungs-Passwort von Thai Hasis ein.');
         return;
@@ -93,33 +110,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
         setLocalError('Das neue Passwort muss mindestens 6 Zeichen lang sein.');
         return;
       }
-    }
 
-    setIsSubmitting(true);
-    try {
-      const res = await resetPasswordWithEmail(
-        cleanEmail,
-        registrationCode.trim(),
-        newPassword.trim()
-      );
-      setSuccessMessage(res.message);
-
-      if (res.method === 'direct_reset') {
+      setIsSubmitting(true);
+      try {
+        const res = await resetPasswordDirect(
+          cleanEmail,
+          registrationCode.trim(),
+          newPassword.trim()
+        );
+        setSuccessMessage(res.message);
         setTimeout(() => {
-          setPassword(newPassword);
-          switchMode('login');
-        }, 1500);
+          handleClose();
+        }, 1200);
+      } catch (err: any) {
+        setLocalError(err.message || 'Fehler beim Zurücksetzen des Passworts.');
+      } finally {
+        setIsSubmitting(false);
       }
-    } catch (err: any) {
-      const msg = err.message || 'Fehler beim Zurücksetzen des Passworts.';
-      if (msg.startsWith('LOCAL_RESET_NEEDS_CODE:')) {
-        setShowDirectResetFields(true);
-        setLocalError(msg.replace('LOCAL_RESET_NEEDS_CODE:', ''));
-      } else {
-        setLocalError(msg);
+    } else {
+      setIsSubmitting(true);
+      try {
+        const res = await requestPasswordResetEmail(cleanEmail);
+        setSuccessMessage(res.message);
+      } catch (err: any) {
+        setLocalError(err.message || 'Fehler beim Anfordern der E-Mail.');
+      } finally {
+        setIsSubmitting(false);
       }
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -311,48 +328,70 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
         {/* Forgot Password Mode Form */}
         {mode === 'forgot_password' ? (
           <form onSubmit={handleForgotPasswordSubmit} className="space-y-3">
-            <p className="text-xs text-[#A1A1A6] leading-relaxed">
-              Gib die E-Mail-Adresse deines Kontos ein. Wir senden dir einen Link zum Zurücksetzen oder du kannst es mit dem Registrierungs-Passwort direkt neu vergeben.
-            </p>
-
-            <div>
-              <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail-Adresse</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@beispiel.de"
-                  autoComplete="email"
-                  required
-                  className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
-                />
-              </div>
-            </div>
-
-            {/* Direct Reset Option with Registration Passcode */}
-            <div className="pt-1">
+            {/* Method Tabs */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#242426] rounded-xl mb-3 border border-[#323236]">
               <button
                 type="button"
-                onClick={() => setShowDirectResetFields(!showDirectResetFields)}
-                className="text-[11px] text-[#FF7A00] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                onClick={() => {
+                  setForgotTab('direct');
+                  setLocalError(null);
+                  setSuccessMessage(null);
+                }}
+                className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  forgotTab === 'direct'
+                    ? 'bg-[#FF7A00] text-black shadow'
+                    : 'text-[#8E8E93] hover:text-white'
+                }`}
               >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>
-                  {showDirectResetFields
-                    ? 'Direkt-Reset ausblenden'
-                    : 'Passwort sofort mit Thai Hasis Zugangs-Passwort neu setzen'}
-                </span>
+                <Zap className="w-3.5 h-3.5" />
+                <span>⚡ Sofort neu setzen</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotTab('email');
+                  setLocalError(null);
+                  setSuccessMessage(null);
+                }}
+                className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  forgotTab === 'email'
+                    ? 'bg-[#3A3A3C] text-white shadow'
+                    : 'text-[#8E8E93] hover:text-white'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Per E-Mail-Link</span>
               </button>
             </div>
 
-            {showDirectResetFields && (
-              <div className="space-y-3 p-3 bg-[#262118] border border-[#FF7A00]/40 rounded-xl animate-in fade-in">
+            {forgotTab === 'direct' ? (
+              <>
+                <div className="bg-[#262118] p-3 rounded-xl border border-[#FF7A00]/40">
+                  <p className="text-[11px] text-[#FFD29D] leading-relaxed">
+                    <strong>Kein Warten auf eine E-Mail nötig:</strong> Mit dem Thai Hasis Zugangs-Passwort kannst du dein Passwort sofort hier im Browser neu festlegen und wirst direkt angemeldet.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail-Adresse</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@beispiel.de"
+                      autoComplete="email"
+                      required
+                      className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[11px] text-[#FF7A00] font-semibold">
-                      Registrierungs-Passwort
+                      Thai Hasis Zugangs-Passwort
                     </label>
                     <span className="text-[10px] text-[#8E8E93]">Erforderlich</span>
                   </div>
@@ -364,6 +403,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
                       onChange={(e) => setRegistrationCode(e.target.value)}
                       placeholder="Zugangs-Passwort eingeben"
                       autoComplete="off"
+                      required
                       className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#FF7A00]/50 rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
                     />
                     <button
@@ -378,7 +418,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
                 </div>
 
                 <div>
-                  <label className="block text-[11px] text-[#D1D1D6] mb-1 font-medium">Neues Passwort</label>
+                  <label className="block text-[11px] text-[#D1D1D6] mb-1 font-medium">Neues Wunsch-Passwort</label>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
                     <input
@@ -387,6 +427,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Mindestens 6 Zeichen"
                       autoComplete="new-password"
+                      required
                       className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
                     />
                     <button
@@ -399,20 +440,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3 rounded-full bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
-            >
-              {isSubmitting
-                ? 'Wird verarbeitet...'
-                : showDirectResetFields
-                ? 'Neues Passwort jetzt speichern'
-                : 'Link zum Zurücksetzen anfordern'}
-            </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3 rounded-full bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Wird gespeichert...' : 'Passwort sofort neu setzen & einloggen'}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="bg-[#2C2C2E] p-3 rounded-xl border border-[#3A3A3C] space-y-1.5 text-xs">
+                  <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-[11px]">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Warum kommt manchmal keine E-Mail an?</span>
+                  </div>
+                  <ul className="text-[11px] text-[#A1A1A6] list-disc list-inside space-y-1 leading-relaxed">
+                    <li>Prüfe deinen <strong>Spam- / Junk-Ordner</strong> (Absender: <code className="text-[10px] text-gray-300">noreply@aerial-key-psmzh.firebaseapp.com</code>).</li>
+                    <li>Manche E-Mail-Provider filtern Systemmails heraus oder verzögern sie um einige Minuten.</li>
+                    <li><strong>Beste Lösung:</strong> Klicke oben auf <strong>„⚡ Sofort neu setzen“</strong> – damit benötigst du keine E-Mail und bist sofort startklar!</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail-Adresse</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@beispiel.de"
+                      autoComplete="email"
+                      required
+                      className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3 rounded-full bg-[#3A3A3C] hover:bg-[#48484A] text-white font-semibold text-xs transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'E-Mail wird gesendet...' : 'Link zum Zurücksetzen anfordern'}
+                </button>
+              </>
+            )}
 
             <div className="text-center pt-2">
               <button

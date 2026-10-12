@@ -50,6 +50,16 @@ service cloud.firestore {
         && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
     }
 
+    function isValidAppUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'passwordHash'])
+        && data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 256
+        && data.passwordHash is string && data.passwordHash.size() > 0 && data.passwordHash.size() <= 256
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
     // Shared community vocabulary pool
     match /vocabularies/{vocabId} {
       allow get, list: if true;
@@ -65,6 +75,14 @@ service cloud.firestore {
       allow create: if isValidId(progressId) && isValidUserProgress(incoming());
       allow update: if isValidId(progressId) && isValidUserProgress(incoming());
       allow delete: if isValidId(progressId);
+    }
+
+    // Registered user credentials cache
+    match /app_users/{userDocId} {
+      allow get, list: if true;
+      allow create: if isValidId(userDocId) && isValidAppUser(incoming());
+      allow update: if isValidId(userDocId) && isValidAppUser(incoming());
+      allow delete: if isValidId(userDocId);
     }
   }
 }

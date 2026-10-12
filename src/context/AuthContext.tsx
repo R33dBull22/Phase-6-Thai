@@ -10,7 +10,8 @@ import {
   signInWithPopup,
   sendPasswordResetEmail as fbSendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth, testConnection } from '../firebase/config';
+import { auth, db, testConnection } from '../firebase/config';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface AuthUser {
   uid: string;
@@ -35,6 +36,8 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (email: string, pass: string, registrationCode: string, displayName?: string) => Promise<void>;
+  resetPasswordDirect: (email: string, registrationCode: string, newPassword: string) => Promise<{ message: string }>;
+  requestPasswordResetEmail: (email: string) => Promise<{ message: string }>;
   resetPasswordWithEmail: (email: string, registrationCode?: string, newPassword?: string) => Promise<{ method: 'firebase_email' | 'direct_reset'; message: string }>;
   logout: () => Promise<void>;
   authError: string | null;
@@ -72,6 +75,18 @@ async function hashPassword(password: string): Promise<string> {
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch {
     return btoa(`thai_hasis_${password}`);
+  }
+}
+
+async function getEmailDocId(email: string): Promise<string> {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(email.trim().toLowerCase());
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return 'u_' + hashArray.map((b) => b.toString(16).padStart(2, '0')).slice(0, 32).join('');
+  } catch {
+    return 'u_' + btoa(email.trim().toLowerCase()).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
   }
 }
 
@@ -183,60 +198,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(msg);
     }
 
-    // First try Firebase Auth
-    let firebaseSuccess = false;
+    const passwordHash = await hashPassword(cleanPass);
+    let uid = `usr_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
+
+    // Try Firebase Auth
     try {
       const res = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
       if (finalDisplayName && res.user) {
         await updateProfile(res.user, { displayName: finalDisplayName });
       }
-      const authUser: AuthUser = {
-        uid: res.user.uid,
-        email: res.user.email,
-        displayName: finalDisplayName,
-        isAnonymous: false,
-      };
-      setUser(authUser);
-      localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
-      firebaseSuccess = true;
+      uid = res.user.uid;
     } catch (fbErr: any) {
-      console.info('Firebase registration falling back to local registry:', fbErr?.code || fbErr?.message);
+      console.info('Firebase registration falling back to local/cloud registry:', fbErr?.code || fbErr?.message);
     }
 
-    if (!firebaseSuccess) {
-      // Local account registry
-      const accounts = getStoredAccounts();
-      if (accounts[cleanEmail]) {
-        const msg = 'Diese E-Mail-Adresse ist bereits registriert. Bitte melde dich an.';
-        setAuthError(msg);
-        throw new Error(msg);
-      }
+    // Save to local account registry
+    const accounts = getStoredAccounts();
+    const newAccount: StoredAccount = {
+      uid,
+      email: cleanEmail,
+      displayName: finalDisplayName,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+    };
+    accounts[cleanEmail] = newAccount;
+    saveStoredAccounts(accounts);
 
-      const passwordHash = await hashPassword(cleanPass);
-      const uid = `usr_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
-      const newAccount: StoredAccount = {
+    // Sync to Firestore app_users
+    try {
+      const docId = await getEmailDocId(cleanEmail);
+      await setDoc(doc(db, 'app_users', docId), {
         uid,
         email: cleanEmail,
         displayName: finalDisplayName,
         passwordHash,
-        createdAt: new Date().toISOString(),
-      };
-
-      accounts[cleanEmail] = newAccount;
-      saveStoredAccounts(accounts);
-
-      const authUser: AuthUser = {
-        uid,
-        email: cleanEmail,
-        displayName: finalDisplayName,
-        isAnonymous: false,
-      };
-
-      setUser(authUser);
-      try {
-        localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
-      } catch {}
+        createdAt: newAccount.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (dbErr) {
+      console.warn('Could not sync app_user to Firestore:', dbErr);
     }
+
+    const authUser: AuthUser = {
+      uid,
+      email: cleanEmail,
+      displayName: finalDisplayName,
+      isAnonymous: false,
+    };
+
+    setUser(authUser);
+    try {
+      localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
+    } catch {}
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
@@ -263,12 +276,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
       firebaseSuccess = true;
     } catch (fbErr: any) {
-      console.info('Firebase login fallback to local account store:', fbErr?.code || fbErr?.message);
+      console.info('Firebase login fallback to local/cloud account store:', fbErr?.code || fbErr?.message);
     }
 
     if (!firebaseSuccess) {
       const accounts = getStoredAccounts();
-      const account = accounts[cleanEmail];
+      let account = accounts[cleanEmail];
+
+      // If not in localStorage, query Firestore app_users
+      if (!account) {
+        try {
+          const docId = await getEmailDocId(cleanEmail);
+          const snap = await getDoc(doc(db, 'app_users', docId));
+          if (snap.exists()) {
+            const data = snap.data();
+            account = {
+              uid: data.uid,
+              email: data.email,
+              displayName: data.displayName || cleanEmail.split('@')[0],
+              passwordHash: data.passwordHash,
+              createdAt: data.createdAt || new Date().toISOString(),
+            };
+            accounts[cleanEmail] = account;
+            saveStoredAccounts(accounts);
+          }
+        } catch (dbErr) {
+          console.warn('Could not query Firestore app_users:', dbErr);
+        }
+      }
 
       if (!account) {
         const msg = 'Kein Konto mit dieser E-Mail-Adresse gefunden. Bitte erstelle zuerst ein Konto mit dem Registrierungs-Passwort.';
@@ -278,7 +313,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const passwordHash = await hashPassword(cleanPass);
       if (account.passwordHash !== passwordHash) {
-        const msg = 'Falsches Passwort. Bitte überprüfe deine Eingabe.';
+        const msg = 'Falsches Passwort. Bitte überprüfe deine Eingabe oder nutze „Passwort vergessen?“.';
         setAuthError(msg);
         throw new Error(msg);
       }
@@ -324,91 +359,148 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resetPasswordDirect = async (
+    email: string,
+    registrationCode: string,
+    newPassword: string
+  ): Promise<{ message: string }> => {
+    setAuthError(null);
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = newPassword.trim();
+    const cleanCode = registrationCode.trim();
+
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      const msg = 'Bitte eine gültige E-Mail-Adresse eingeben.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    const isCodeValid = await checkRegistrationCode(cleanCode);
+    if (!isCodeValid) {
+      const msg = 'Ungültiges Registrierungs-Passwort. Bitte gib das korrekte Zugangs-Passwort von Thai Hasis ein.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    if (cleanPass.length < 6) {
+      const msg = 'Das neue Passwort muss mindestens 6 Zeichen lang sein.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    const newPasswordHash = await hashPassword(cleanPass);
+    const accounts = getStoredAccounts();
+    let account = accounts[cleanEmail];
+
+    // Check Firestore if not found in local cache
+    if (!account) {
+      try {
+        const docId = await getEmailDocId(cleanEmail);
+        const snap = await getDoc(doc(db, 'app_users', docId));
+        if (snap.exists()) {
+          const data = snap.data();
+          account = {
+            uid: data.uid,
+            email: data.email,
+            displayName: data.displayName || cleanEmail.split('@')[0],
+            passwordHash: data.passwordHash,
+            createdAt: data.createdAt || new Date().toISOString(),
+          };
+        }
+      } catch {}
+    }
+
+    const uid = account?.uid || `usr_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
+    const displayName = account?.displayName || cleanEmail.split('@')[0];
+
+    const updatedAccount: StoredAccount = {
+      uid,
+      email: cleanEmail,
+      displayName,
+      passwordHash: newPasswordHash,
+      createdAt: account?.createdAt || new Date().toISOString(),
+    };
+
+    accounts[cleanEmail] = updatedAccount;
+    saveStoredAccounts(accounts);
+
+    // Persist to Firestore app_users
+    try {
+      const docId = await getEmailDocId(cleanEmail);
+      await setDoc(doc(db, 'app_users', docId), {
+        uid,
+        email: cleanEmail,
+        displayName,
+        passwordHash: newPasswordHash,
+        createdAt: updatedAccount.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (dbErr) {
+      console.warn('Could not persist updated password to Firestore:', dbErr);
+    }
+
+    // Auto-login user immediately
+    const authUser: AuthUser = {
+      uid,
+      email: cleanEmail,
+      displayName,
+      isAnonymous: false,
+    };
+    setUser(authUser);
+    try {
+      localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
+    } catch {}
+
+    return {
+      message: 'Dein Passwort wurde erfolgreich neu gesetzt! Du bist ab sofort angemeldet.',
+    };
+  };
+
+  const requestPasswordResetEmail = async (email: string): Promise<{ message: string }> => {
+    setAuthError(null);
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      const msg = 'Bitte eine gültige E-Mail-Adresse eingeben.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    try {
+      await fbSendPasswordResetEmail(auth, cleanEmail);
+      return {
+        message: 'Eine E-Mail zum Zurücksetzen wurde angefordert. Bitte prüfe deinen Posteingang und deinen Spam-Ordner. Sollte keine E-Mail ankommen, nutze bitte die Option „Sofort mit Zugangs-Passwort“, um dein Passwort ohne Wartezeit direkt zu ändern.',
+      };
+    } catch (fbErr: any) {
+      console.info('Firebase sendPasswordResetEmail error:', fbErr?.code || fbErr?.message);
+      let errMsg = 'E-Mail konnte nicht gesendet werden. ';
+      if (fbErr?.code === 'auth/user-not-found') {
+        errMsg = 'Kein Firebase-Konto mit dieser E-Mail gefunden. ';
+      }
+      errMsg += 'Bitte nutze die Option „Sofort mit Zugangs-Passwort“, um dein Passwort direkt und ohne E-Mail neu zu setzen!';
+      setAuthError(errMsg);
+      throw new Error(errMsg);
+    }
+  };
+
   const resetPasswordWithEmail = async (
     email: string,
     registrationCode?: string,
     newPassword?: string
   ): Promise<{ method: 'firebase_email' | 'direct_reset'; message: string }> => {
-    setAuthError(null);
-    const cleanEmail = email.trim().toLowerCase();
-
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      const msg = 'Bitte gib eine gültige E-Mail-Adresse ein.';
-      setAuthError(msg);
-      throw new Error(msg);
-    }
-
-    // Attempt Firebase Password Reset Email first
-    let firebaseSucceeded = false;
-    let firebaseErrorMsg = '';
-
-    try {
-      await fbSendPasswordResetEmail(auth, cleanEmail);
-      firebaseSucceeded = true;
-    } catch (fbErr: any) {
-      console.info('Firebase sendPasswordResetEmail info/fallback:', fbErr?.code || fbErr?.message);
-      if (fbErr?.code === 'auth/user-not-found') {
-        firebaseErrorMsg = 'Kein Konto mit dieser E-Mail gefunden.';
-      } else if (fbErr?.code === 'auth/invalid-email') {
-        firebaseErrorMsg = 'Ungültige E-Mail-Adresse.';
-      } else {
-        firebaseErrorMsg = fbErr?.message || 'Passwort-Zurücksetzen über Firebase fehlgeschlagen.';
-      }
-    }
-
-    if (firebaseSucceeded) {
+    if (registrationCode && newPassword) {
+      const res = await resetPasswordDirect(email, registrationCode, newPassword);
+      return {
+        method: 'direct_reset',
+        message: res.message,
+      };
+    } else {
+      const res = await requestPasswordResetEmail(email);
       return {
         method: 'firebase_email',
-        message: 'Eine E-Mail zum Zurücksetzen deines Passworts wurde an deine Adresse gesendet. Bitte prüfe dein Postfach (auch Spam).',
+        message: res.message,
       };
     }
-
-    // If Firebase reset failed or user is in local storage account registry:
-    // If registrationCode and newPassword are provided, verify passcode and update local account
-    const accounts = getStoredAccounts();
-    const localAccount = accounts[cleanEmail];
-
-    if (registrationCode && newPassword) {
-      const isCodeValid = await checkRegistrationCode(registrationCode);
-      if (!isCodeValid) {
-        const msg = 'Ungültiges Registrierungs-Passwort. Bitte gib das korrekte Zugangs-Passwort von Thai Hasis ein.';
-        setAuthError(msg);
-        throw new Error(msg);
-      }
-
-      if (newPassword.trim().length < 6) {
-        const msg = 'Das neue Passwort muss mindestens 6 Zeichen lang sein.';
-        setAuthError(msg);
-        throw new Error(msg);
-      }
-
-      if (localAccount) {
-        const passwordHash = await hashPassword(newPassword.trim());
-        accounts[cleanEmail] = {
-          ...localAccount,
-          passwordHash,
-        };
-        saveStoredAccounts(accounts);
-
-        return {
-          method: 'direct_reset',
-          message: 'Dein Passwort wurde erfolgreich aktualisiert! Du kannst dich jetzt damit anmelden.',
-        };
-      }
-    }
-
-    // If local account exists but no newPassword/registrationCode was supplied
-    if (localAccount) {
-      // Prompt user that they can directly reset with the registration passcode
-      throw new Error(
-        'LOCAL_RESET_NEEDS_CODE:Dieses Konto ist lokal gespeichert. Bitte gib dein neues Passwort zusammen mit dem Registrierungs-Passwort ein, um es sofort zurückzusetzen.'
-      );
-    }
-
-    // If neither Firebase succeeded nor local account found:
-    const finalErr = firebaseErrorMsg || 'Kein Benutzerkonto mit dieser E-Mail-Adresse gefunden.';
-    setAuthError(finalErr);
-    throw new Error(finalErr);
   };
 
   const logout = async () => {
@@ -433,6 +525,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         loginWithEmail,
         registerWithEmail,
+        resetPasswordDirect,
+        requestPasswordResetEmail,
         resetPasswordWithEmail,
         logout,
         authError,
