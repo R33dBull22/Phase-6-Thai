@@ -10,7 +10,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import { Vocabulary, UserProgress } from '../types/vocab';
+import { Vocabulary, UserProgress, DeletedVocabEntry } from '../types/vocab';
 import { STARTER_VOCABULARY } from '../data/initialVocab';
 import { calculateNextReviewDate, calculateResetReviewDate } from '../utils/leitner';
 
@@ -22,6 +22,57 @@ const LOCAL_VOCAB_KEY = 'thai_hasis_vocabularies_v1';
 const LEGACY_VOCAB_KEY = 'phase6_thai_vocabularies_v1';
 const LOCAL_PROGRESS_KEY = 'thai_hasis_progress_v1';
 const LEGACY_PROGRESS_KEY = 'phase6_thai_progress_v1';
+const LOCAL_DELETED_VOCABS_KEY = 'thai_hasis_deleted_vocabs_v1';
+const LOCAL_DELETED_LESSONS_KEY = 'thai_hasis_deleted_lessons_v1';
+
+export function getDeletedVocabs(userId?: string): DeletedVocabEntry[] {
+  try {
+    const key = userId ? `${LOCAL_DELETED_VOCABS_KEY}_${userId}` : LOCAL_DELETED_VOCABS_KEY;
+    const raw = localStorage.getItem(key) || localStorage.getItem(LOCAL_DELETED_VOCABS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDeletedVocabs(entries: DeletedVocabEntry[], userId?: string) {
+  try {
+    const key = userId ? `${LOCAL_DELETED_VOCABS_KEY}_${userId}` : LOCAL_DELETED_VOCABS_KEY;
+    localStorage.setItem(key, JSON.stringify(entries));
+    // also keep general key in sync
+    localStorage.setItem(LOCAL_DELETED_VOCABS_KEY, JSON.stringify(entries));
+  } catch {}
+}
+
+export function getDeletedLessons(userId?: string): string[] {
+  try {
+    const key = userId ? `${LOCAL_DELETED_LESSONS_KEY}_${userId}` : LOCAL_DELETED_LESSONS_KEY;
+    const raw = localStorage.getItem(key) || localStorage.getItem(LOCAL_DELETED_LESSONS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDeletedLessons(lessons: string[], userId?: string) {
+  try {
+    const key = userId ? `${LOCAL_DELETED_LESSONS_KEY}_${userId}` : LOCAL_DELETED_LESSONS_KEY;
+    localStorage.setItem(key, JSON.stringify(lessons));
+    localStorage.setItem(LOCAL_DELETED_LESSONS_KEY, JSON.stringify(lessons));
+  } catch {}
+}
+
+export function filterOutUserDeletedVocabs(list: Vocabulary[], userId?: string): Vocabulary[] {
+  const deletedEntries = getDeletedVocabs(userId);
+  const deletedIds = new Set(deletedEntries.map((e) => e.vocab.id));
+  const deletedLessons = new Set(getDeletedLessons(userId).map((l) => l.trim().toLowerCase()));
+
+  return list.filter((v) => {
+    if (deletedIds.has(v.id)) return false;
+    if (v.lesson && deletedLessons.has(v.lesson.trim().toLowerCase())) return false;
+    return true;
+  });
+}
 
 function getCachedVocabs(): Vocabulary[] {
   try {
@@ -88,16 +139,17 @@ export async function seedInitialVocabularies(creatorId = 'system_starter'): Pro
 /**
  * Upload any vocabularies that exist in local cache but are missing from Firestore
  */
-export async function syncLocalVocabulariesToCloud(): Promise<number> {
+export async function syncLocalVocabulariesToCloud(userId?: string): Promise<number> {
   const localList = getCachedVocabs();
-  if (!Array.isArray(localList) || localList.length === 0) return 0;
+  const activeLocal = filterOutUserDeletedVocabs(localList, userId);
+  if (!Array.isArray(activeLocal) || activeLocal.length === 0) return 0;
 
   try {
     const snap = await getDocs(collection(db, VOCAB_COLLECTION));
     const remoteIds = new Set<string>();
     snap.forEach((d) => remoteIds.add(d.id));
 
-    const missingInCloud = localList.filter((v) => !remoteIds.has(v.id));
+    const missingInCloud = activeLocal.filter((v) => !remoteIds.has(v.id));
     if (missingInCloud.length === 0) return 0;
 
     const batch = writeBatch(db);
@@ -126,7 +178,7 @@ export async function syncLocalVocabulariesToCloud(): Promise<number> {
 /**
  * Fetch all community vocabularies from Firestore
  */
-export async function fetchCommunityVocabularies(): Promise<Vocabulary[]> {
+export async function fetchCommunityVocabularies(userId?: string): Promise<Vocabulary[]> {
   try {
     const snap = await getDocs(collection(db, VOCAB_COLLECTION));
     if (!snap.empty) {
@@ -135,19 +187,23 @@ export async function fetchCommunityVocabularies(): Promise<Vocabulary[]> {
         list.push({ id: d.id, ...(d.data() as Omit<Vocabulary, 'id'>) });
       });
 
-      // Also check if there are local vocabularies not yet in Firestore, and sync them
+      // Filter out vocabs or lessons that this user deleted
+      const activeList = filterOutUserDeletedVocabs(list, userId);
+
+      // Also check if there are local vocabs not yet in Firestore, and sync them
       try {
         const localList = getCachedVocabs();
+        const activeLocal = filterOutUserDeletedVocabs(localList, userId);
         const remoteIds = new Set(list.map((v) => v.id));
-        const unsynced = localList.filter((v) => !remoteIds.has(v.id));
+        const unsynced = activeLocal.filter((v) => !remoteIds.has(v.id));
         if (unsynced.length > 0) {
-          list.unshift(...unsynced);
-          syncLocalVocabulariesToCloud().catch(() => {});
+          activeList.unshift(...unsynced);
+          syncLocalVocabulariesToCloud(userId).catch(() => {});
         }
       } catch {}
 
-      saveCachedVocabs(list);
-      return list;
+      saveCachedVocabs(activeList);
+      return activeList;
     }
   } catch (error) {
     console.warn('Failed fetching community vocab from Firestore, falling back to local cache:', error);
@@ -155,21 +211,23 @@ export async function fetchCommunityVocabularies(): Promise<Vocabulary[]> {
 
   // If Firestore is empty or failed, check local storage cache
   const localList = getCachedVocabs();
-  if (Array.isArray(localList) && localList.length > 0) {
-    syncLocalVocabulariesToCloud().catch(() => {});
-    return localList;
+  const activeLocal = filterOutUserDeletedVocabs(localList, userId);
+  if (Array.isArray(activeLocal) && activeLocal.length > 0) {
+    syncLocalVocabulariesToCloud(userId).catch(() => {});
+    return activeLocal;
   }
 
   // If both Firestore and local cache are empty, seed starter vocabularies
   const initialItems = await seedInitialVocabularies();
-  return initialItems;
+  return filterOutUserDeletedVocabs(initialItems, userId);
 }
 
 /**
  * Subscribe to real-time updates for community vocabularies
  */
 export function subscribeToCommunityVocabularies(
-  onUpdate: (vocabs: Vocabulary[]) => void
+  onUpdate: (vocabs: Vocabulary[]) => void,
+  userId?: string
 ): () => void {
   return onSnapshot(
     collection(db, VOCAB_COLLECTION),
@@ -179,10 +237,11 @@ export function subscribeToCommunityVocabularies(
         snap.forEach((d) => {
           list.push({ id: d.id, ...(d.data() as Omit<Vocabulary, 'id'>) });
         });
+        const activeList = filterOutUserDeletedVocabs(list, userId);
         try {
-          localStorage.setItem(LOCAL_VOCAB_KEY, JSON.stringify(list));
+          localStorage.setItem(LOCAL_VOCAB_KEY, JSON.stringify(activeList));
         } catch {}
-        onUpdate(list);
+        onUpdate(activeList);
       }
     },
     (error) => {
@@ -343,10 +402,51 @@ export async function updateVocabulary(
 }
 
 /**
- * Delete a vocabulary item from Firestore and local storage
+ * Delete a vocabulary item from Firestore and local storage,
+ * and track it in deleted history so it never reappears on sync
+ * and can be restored in Settings.
  */
-export async function deleteVocabulary(id: string, userId: string): Promise<void> {
-  // 1. Remove from local storage
+export async function deleteVocabulary(
+  id: string,
+  userId: string,
+  vocabSnapshot?: Vocabulary
+): Promise<void> {
+  // Determine vocab snapshot to store in deleted history
+  let snapshot = vocabSnapshot;
+  if (!snapshot) {
+    const cached = getCachedVocabs();
+    snapshot = cached.find((v) => v.id === id);
+  }
+
+  // Find user's progress if any
+  let userProg: UserProgress | undefined;
+  try {
+    const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
+    const cachedProg = localStorage.getItem(key);
+    if (cachedProg) {
+      const map = JSON.parse(cachedProg);
+      userProg = map[id];
+    }
+  } catch {}
+
+  // 1. Record in deleted vocabs list for the user
+  if (snapshot) {
+    const deletedList = getDeletedVocabs(userId);
+    const existingIdx = deletedList.findIndex((d) => d.vocab.id === id);
+    const entry: DeletedVocabEntry = {
+      vocab: snapshot,
+      deletedAt: new Date().toISOString(),
+      previousProgress: userProg,
+    };
+    if (existingIdx !== -1) {
+      deletedList[existingIdx] = entry;
+    } else {
+      deletedList.unshift(entry);
+    }
+    saveDeletedVocabs(deletedList, userId);
+  }
+
+  // 2. Remove from local storage
   try {
     const cached = localStorage.getItem(LOCAL_VOCAB_KEY);
     if (cached) {
@@ -356,7 +456,7 @@ export async function deleteVocabulary(id: string, userId: string): Promise<void
     }
   } catch {}
 
-  // 2. Also remove from local progress
+  // 3. Remove from local progress
   try {
     const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
     const cachedProg = localStorage.getItem(key);
@@ -367,7 +467,7 @@ export async function deleteVocabulary(id: string, userId: string): Promise<void
     }
   } catch {}
 
-  // 3. Delete from Firestore
+  // 4. Delete from Firestore
   try {
     await deleteDoc(doc(db, VOCAB_COLLECTION, id));
   } catch (err) {
@@ -376,6 +476,96 @@ export async function deleteVocabulary(id: string, userId: string): Promise<void
   try {
     await deleteDoc(doc(db, PROGRESS_COLLECTION, `${userId}_${id}`));
   } catch {}
+}
+
+/**
+ * Restore a previously deleted vocabulary item
+ */
+export async function restoreVocabulary(
+  vocabId: string,
+  userId: string
+): Promise<Vocabulary | null> {
+  const deletedList = getDeletedVocabs(userId);
+  const entryIdx = deletedList.findIndex((e) => e.vocab.id === vocabId);
+  if (entryIdx === -1) return null;
+
+  const entry = deletedList[entryIdx];
+  const vocab = entry.vocab;
+
+  // Remove from deleted list
+  deletedList.splice(entryIdx, 1);
+  saveDeletedVocabs(deletedList, userId);
+
+  // If the lesson was also marked as deleted, unmark it so the item becomes visible
+  if (vocab.lesson) {
+    const deletedLessons = getDeletedLessons(userId);
+    const lessonIdx = deletedLessons.indexOf(vocab.lesson.trim());
+    if (lessonIdx !== -1) {
+      deletedLessons.splice(lessonIdx, 1);
+      saveDeletedLessons(deletedLessons, userId);
+    }
+  }
+
+  // 1. Add back to local cache
+  try {
+    const cached = getCachedVocabs();
+    if (!cached.some((v) => v.id === vocab.id)) {
+      cached.unshift(vocab);
+      saveCachedVocabs(cached);
+    }
+  } catch {}
+
+  // 2. Restore in Firestore so community/cloud has it
+  try {
+    const docRef = doc(db, VOCAB_COLLECTION, vocab.id);
+    await setDoc(docRef, {
+      german: vocab.german,
+      thai: vocab.thai,
+      romanization: vocab.romanization || '',
+      lesson: vocab.lesson || 'Allgemein',
+      exampleThai: vocab.exampleThai || '',
+      exampleGerman: vocab.exampleGerman || '',
+      creatorId: vocab.creatorId || userId || 'restored_user',
+      creatorName: vocab.creatorName || 'Thai Hasi',
+      createdAt: vocab.createdAt || new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Error restoring vocab in Firestore:', err);
+  }
+
+  // 3. Restore progress if previously possessed
+  if (entry.previousProgress && userId) {
+    try {
+      const prog = entry.previousProgress;
+      const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
+      const cached = localStorage.getItem(key);
+      const map = cached ? JSON.parse(cached) : {};
+      map[vocab.id] = prog;
+      localStorage.setItem(key, JSON.stringify(map));
+
+      await setDoc(doc(db, PROGRESS_COLLECTION, `${userId}_${vocab.id}`), prog);
+    } catch (err) {
+      console.warn('Error restoring progress:', err);
+    }
+  }
+
+  return vocab;
+}
+
+/**
+ * Permanently delete from trash (cannot be restored)
+ */
+export function permanentlyDeleteFromTrash(vocabId: string, userId?: string) {
+  const deletedList = getDeletedVocabs(userId);
+  const filtered = deletedList.filter((e) => e.vocab.id !== vocabId);
+  saveDeletedVocabs(filtered, userId);
+}
+
+/**
+ * Empty entire deleted trash
+ */
+export function clearAllDeletedVocabs(userId?: string) {
+  saveDeletedVocabs([], userId);
 }
 
 /**
@@ -527,21 +717,47 @@ export async function renameLesson(oldName: string, newName: string): Promise<nu
 }
 
 /**
- * Delete a lesson: either delete all its vocabularies or move them to another lesson
+ * Delete a lesson: either delete all its vocabularies or move them to another lesson.
+ * If deleting cards, adds them to deleted history so they can be restored in Settings.
  */
 export async function deleteLesson(
   lessonName: string,
   deleteVocabs: boolean,
-  moveToLesson = 'Allgemein'
+  moveToLesson = 'Allgemein',
+  userId?: string
 ): Promise<number> {
   const cleanLesson = lessonName.trim();
   if (!cleanLesson) return 0;
+
+  // Add lesson to user deleted lessons list
+  if (deleteVocabs) {
+    const deletedLessons = getDeletedLessons(userId);
+    if (!deletedLessons.includes(cleanLesson)) {
+      deletedLessons.push(cleanLesson);
+      saveDeletedLessons(deletedLessons, userId);
+    }
+  }
 
   const list = getCachedVocabs();
   const matched = list.filter((v) => v.lesson === cleanLesson);
   const matchedIds = matched.map((v) => v.id);
 
   if (deleteVocabs) {
+    // Record matched vocabs in user's deleted history
+    if (matched.length > 0) {
+      const deletedList = getDeletedVocabs(userId);
+      const now = new Date().toISOString();
+      for (const vocab of matched) {
+        if (!deletedList.some((e) => e.vocab.id === vocab.id)) {
+          deletedList.unshift({
+            vocab,
+            deletedAt: now,
+          });
+        }
+      }
+      saveDeletedVocabs(deletedList, userId);
+    }
+
     // Remove from local cache
     const remaining = list.filter((v) => v.lesson !== cleanLesson);
     saveCachedVocabs(remaining);

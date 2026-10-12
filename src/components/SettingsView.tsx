@@ -22,7 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { Vocabulary, UserProgress } from '../types/vocab';
+import { Vocabulary, UserProgress, DeletedVocabEntry } from '../types/vocab';
 import { StudyInputMethod, StudyMode, StudyDirection } from './StudySession';
 import {
   exportToCSV,
@@ -32,7 +32,13 @@ import {
   parseJSONContent,
   ParsedCSVRow,
 } from '../services/exportImportService';
+import {
+  getDeletedVocabs,
+  permanentlyDeleteFromTrash,
+  clearAllDeletedVocabs,
+} from '../services/vocabService';
 import { useAuth } from '../context/AuthContext';
+import { Trash2, RotateCcw } from 'lucide-react';
 
 interface SettingsViewProps {
   vocabularies: Vocabulary[];
@@ -40,6 +46,7 @@ interface SettingsViewProps {
   onImportVocabs: (
     newVocabs: (Omit<Vocabulary, 'id' | 'createdAt'> & { phase?: number })[]
   ) => Promise<number>;
+  onRestoreVocab?: (id: string) => Promise<void>;
   defaultHideRomanization: boolean;
   onToggleDefaultHideRomanization: (val: boolean) => void;
   defaultInputMethod: StudyInputMethod;
@@ -73,6 +80,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const { user, isGuest, logout } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Deleted items & restoration state
+  const [deletedList, setDeletedList] = useState<DeletedVocabEntry[]>(() =>
+    getDeletedVocabs(user?.uid)
+  );
+  const [showDeletedTrash, setShowDeletedTrash] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [trashToast, setTrashToast] = useState<string | null>(null);
+
+  const refreshDeletedList = () => {
+    setDeletedList(getDeletedVocabs(user?.uid));
+  };
+
+  const handleRestoreItem = async (id: string, germanText: string) => {
+    if (!onRestoreVocab) return;
+    setRestoringId(id);
+    try {
+      await onRestoreVocab(id);
+      refreshDeletedList();
+      setTrashToast(`✓ „${germanText}“ erfolgreich wiederhergestellt!`);
+      setTimeout(() => setTrashToast(null), 4000);
+    } catch (err: any) {
+      setTrashToast(`Fehler: ${err.message || 'Konnte nicht wiederhergestellt werden'}`);
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handlePermanentDelete = (id: string) => {
+    permanentlyDeleteFromTrash(id, user?.uid);
+    refreshDeletedList();
+    setTrashToast('Eintrag endgültig aus dem Papierkorb gelöscht.');
+    setTimeout(() => setTrashToast(null), 3000);
+  };
+
+  const handleClearTrash = () => {
+    clearAllDeletedVocabs(user?.uid);
+    refreshDeletedList();
+    setTrashToast('Papierkorb vollständig geleert.');
+    setTimeout(() => setTrashToast(null), 3000);
+  };
 
   // Import State (CSV or JSON)
   const [parsedRows, setParsedRows] = useState<ParsedCSVRow[] | null>(null);
@@ -220,10 +268,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <p className="text-xs text-[#A1A1AA] mb-3">
-            Alle erstellten Vokabeln werden automatisch in der Cloud gesichert und stehen allen Benutzern sofort zur Verfügung.
+            Alle erstellten Vokabeln werden automatisch in der Cloud gesichert. Gelöschte Vokabeln und Lektionen bleiben für dich dauerhaft ausgeblendet, auch nach einem erneuten Cloud-Abgleich.
           </p>
 
-          <div className="bg-[#1C1C1E] rounded-xl p-3 border border-[#3A3A3D] flex items-center justify-between mb-3">
+          <div className="bg-[#1C1C1E] rounded-xl p-3 border border-[#3A3A3D] flex items-center justify-between mb-1">
             <div>
               <p className="text-xs text-[#8E8E93]">Aktive Vokabeln im Pool</p>
               <p className="text-base font-bold text-white">{vocabularies.length} Vokabeln</p>
@@ -231,11 +279,160 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="py-1.5 px-3 rounded-lg bg-[#2C2C2E] hover:bg-[#38383B] text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              className="py-1.5 px-3 rounded-lg bg-[#2C2C2E] hover:bg-[#38383B] text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#FF7A00]' : ''}`} />
               <span>{isRefreshing ? 'Gleicht ab...' : 'Jetzt abgleichen'}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Gelöschte Vokabeln wiederherstellen (Papierkorb) */}
+        <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1.5">
+              <RotateCcw className="w-4 h-4 text-[#FF7A00]" />
+              Gelöschte Vokabeln wiederherstellen
+            </h2>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-[#8E8E93]">
+              {deletedList.length} {deletedList.length === 1 ? 'Eintrag' : 'Einträge'}
+            </span>
+          </div>
+
+          <p className="text-xs text-[#A1A1AA] mb-3 leading-relaxed">
+            Vokabeln, die du gelöscht hast, bleiben dauerhaft ausgeblendet und werden nicht wieder durch den Cloud-Abgleich eingespielt. Hier kannst du versehentlich gelöschte Wörter jederzeit wieder aktivieren.
+          </p>
+
+          {/* Toast inside trash */}
+          {trashToast && (
+            <div className="mb-3 p-2.5 rounded-xl bg-[#1C1C1E] border border-[#FF7A00]/40 text-xs text-amber-200 flex items-center justify-between gap-2">
+              <span>{trashToast}</span>
+              <button
+                type="button"
+                onClick={() => setTrashToast(null)}
+                className="text-[#8E8E93] hover:text-white text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <div className="bg-[#1C1C1E] rounded-xl border border-[#3A3A3D] overflow-hidden">
+            <div className="p-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowDeletedTrash((prev) => !prev)}
+                className="flex items-center gap-2 text-xs font-semibold text-white hover:text-[#FF7A00] transition-colors cursor-pointer text-left flex-1"
+              >
+                <Trash2 className="w-4 h-4 text-[#8E8E93]" />
+                <span>
+                  {showDeletedTrash
+                    ? 'Papierkorb einklappen'
+                    : `Papierkorb öffnen (${deletedList.length})`}
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                {deletedList.length > 0 && showDeletedTrash && (
+                  <button
+                    type="button"
+                    onClick={handleClearTrash}
+                    className="text-[10px] text-rose-400 hover:text-rose-300 px-2 py-1 rounded bg-[#2C2C2E] hover:bg-[#38383B] transition-colors cursor-pointer"
+                  >
+                    Alle leeren
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowDeletedTrash((prev) => !prev)}
+                  className="p-1 text-[#8E8E93] hover:text-white cursor-pointer"
+                >
+                  {showDeletedTrash ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {showDeletedTrash && (
+              <div className="p-3 pt-0 border-t border-[#2C2C2E]/80">
+                {deletedList.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-[#71717A]">
+                    <p className="text-xl mb-1">🗑️</p>
+                    <p className="font-medium">Keine gelöschten Vokabeln vorhanden.</p>
+                    <p className="text-[11px] text-[#52525B] mt-0.5">
+                      Sobald du Vokabeln oder Lektionen entfernst, landen sie hier.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto divide-y divide-[#2C2C2E] pt-2">
+                    {deletedList.map((entry) => {
+                      const v = entry.vocab;
+                      const isRestoring = restoringId === v.id;
+                      return (
+                        <div
+                          key={v.id}
+                          className="pt-2 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-medium truncate">
+                                {v.german}
+                              </span>
+                              <span className="text-[#8E8E93]">&rarr;</span>
+                              <span className="text-[#FF7A00] font-thai truncate font-medium">
+                                {v.thai}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#71717A]">
+                              <span className="truncate max-w-[120px]">
+                                {v.lesson || 'Allgemein'}
+                              </span>
+                              {v.romanization && (
+                                <span className="italic truncate max-w-[100px]">
+                                  ({v.romanization})
+                                </span>
+                              )}
+                              {entry.previousProgress && (
+                                <span className="text-amber-400/80">
+                                  P{entry.previousProgress.phase}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Wiederherstellen Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreItem(v.id, v.german)}
+                              disabled={isRestoring}
+                              className="px-2.5 py-1 rounded-lg bg-[#FF7A00] hover:bg-[#FF881A] text-black font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                              title="Vokabel wiederherstellen"
+                            >
+                              <RotateCcw className={`w-3 h-3 ${isRestoring ? 'animate-spin' : ''}`} />
+                              <span>{isRestoring ? '...' : 'Wiederherstellen'}</span>
+                            </button>
+
+                            {/* Endgültig löschen Button */}
+                            <button
+                              type="button"
+                              onClick={() => handlePermanentDelete(v.id)}
+                              className="p-1 rounded-md text-[#71717A] hover:text-rose-400 hover:bg-[#2C2C2E] transition-colors cursor-pointer"
+                              title="Endgültig vernichten"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -29,6 +29,12 @@ export interface CardWithProgress {
   progress: UserProgress;
 }
 
+export interface DeletedVocabEntry {
+  vocab: Vocabulary;
+  deletedAt: string; // ISO String
+  previousProgress?: UserProgress;
+}
+
 export type ActiveTab = 'learn' | 'pool' | 'create' | 'settings';
 
 export interface PhaseConfig {

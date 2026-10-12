@@ -7,6 +7,7 @@ import {
   addVocabulary,
   updateVocabulary,
   deleteVocabulary,
+  restoreVocabulary,
   addBatchToUserDeck,
   recordReviewResult,
   addVocabToUserDeck,
@@ -152,14 +153,15 @@ function AppContent() {
 
     setLoadingData(true);
     try {
-      // 1. Upload any locally created vocabularies to Firestore so all users see them
-      await syncLocalVocabulariesToCloud().catch(() => {});
+      const userId = user.uid;
 
-      // 2. Fetch all shared vocabularies from Firestore
-      const vocabs = await fetchCommunityVocabularies();
+      // 1. Upload any locally created vocabularies to Firestore so all users see them
+      await syncLocalVocabulariesToCloud(userId).catch(() => {});
+
+      // 2. Fetch all shared vocabularies from Firestore (filtering out deleted items)
+      const vocabs = await fetchCommunityVocabularies(userId);
       setVocabularies(vocabs);
 
-      const userId = user.uid;
       const prog = await fetchUserProgress(userId);
       setProgressMap(prog);
 
@@ -185,7 +187,7 @@ function AppContent() {
         // Subscribe to real-time updates from Firestore
         const unsubscribe = subscribeToCommunityVocabularies((remoteVocabs) => {
           setVocabularies(remoteVocabs);
-        });
+        }, user.uid);
 
         return () => unsubscribe();
       } else {
@@ -287,7 +289,8 @@ function AppContent() {
   // Delete lesson
   const handleDeleteLesson = async (lessonName: string, deleteVocabs: boolean, moveToLesson?: string) => {
     const target = moveToLesson || 'Allgemein';
-    await deleteLesson(lessonName, deleteVocabs, target);
+    const userId = user?.uid;
+    await deleteLesson(lessonName, deleteVocabs, target, userId);
     if (deleteVocabs) {
       setVocabularies((prev) => prev.filter((v) => v.lesson !== lessonName));
     } else {
@@ -323,13 +326,29 @@ function AppContent() {
   const handleDeleteVocab = async (id: string) => {
     if (!user) return;
     const userId = user.uid;
-    await deleteVocabulary(id, userId);
+    const targetVocab = vocabularies.find((v) => v.id === id);
+    await deleteVocabulary(id, userId, targetVocab);
     setVocabularies((prev) => prev.filter((v) => v.id !== id));
     setProgressMap((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
+  };
+
+  // Restore vocabulary handler
+  const handleRestoreVocab = async (id: string) => {
+    if (!user) return;
+    const userId = user.uid;
+    const restored = await restoreVocabulary(id, userId);
+    if (restored) {
+      setVocabularies((prev) => {
+        if (prev.some((v) => v.id === restored.id)) return prev;
+        return [restored, ...prev];
+      });
+      const updatedProg = await fetchUserProgress(userId);
+      setProgressMap(updatedProg);
+    }
   };
 
   // Start active study session
@@ -447,6 +466,7 @@ function AppContent() {
                 vocabularies={vocabularies}
                 progressMap={progressMap}
                 onImportVocabs={handleImportVocabs}
+                onRestoreVocab={handleRestoreVocab}
                 defaultHideRomanization={defaultHideRomanization}
                 onToggleDefaultHideRomanization={handleToggleHideRomanization}
                 defaultInputMethod={defaultInputMethod}
