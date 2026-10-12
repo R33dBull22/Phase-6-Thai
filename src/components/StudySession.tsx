@@ -16,6 +16,9 @@ import {
   CheckCircle2,
   XCircle,
   Pencil,
+  MoreVertical,
+  ChevronRight,
+  Send,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Vocabulary, UserProgress, QueryDirection } from '../types/vocab';
@@ -126,7 +129,12 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [isRevealed, setIsRevealed] = useState(mode === 'preview_first');
   const [hideRomanization, setHideRomanization] = useState(defaultHideRomanization);
   const [showExample, setShowExample] = useState(false);
+  const [showCardMenu, setShowCardMenu] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setShowCardMenu(false);
+  }, [currentIndex]);
 
   // Typing state
   const [userInput, setUserInput] = useState('');
@@ -379,19 +387,23 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const isTyping = currentInputMethod === 'typing' && isDeToThai;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#121214] text-white flex flex-col justify-between p-4 sm:p-6 select-none overflow-hidden">
-      {/* Top Bar matching IMG_6344.png */}
+    <div
+      className="fixed inset-0 z-50 bg-[#121214] text-white flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden h-[100dvh]"
+      onClick={() => setShowCardMenu(false)}
+    >
+      {/* Top Bar matching IMG_6357.png */}
       <div className="max-w-md w-full mx-auto">
-        <div className="flex items-center gap-3 pt-2 pb-4">
-          {/* Phase Badge */}
-          <div className="w-8 text-center" title={`Aktuelle Richtung (${isDeToThai ? 'DE ➔ TH' : 'TH ➔ DE'}): Phase ${currentPhase}`}>
-            <span className="text-base font-bold text-[#FF7A00]">
-              {currentPhase}
-            </span>
-          </div>
+        <div className="flex items-center justify-between pt-1 pb-2 px-1">
+          {/* Phase Number on Left */}
+          <span
+            className="text-lg font-bold text-[#FF7A00] select-none"
+            title={`Aktuelle Richtung (${isDeToThai ? 'DE ➔ TH' : 'TH ➔ DE'}): Phase ${currentPhase}`}
+          >
+            {currentPhase}
+          </span>
 
-          {/* Progress Bar Track: zeigt die richtig beantworteten Vokabeln an */}
-          <div className="flex-1 h-1.5 bg-[#2C2C2E] rounded-full overflow-hidden">
+          {/* Progress Bar Track in Center */}
+          <div className="flex-1 h-1.5 bg-[#2C2C2E] rounded-full overflow-hidden mx-3">
             <div
               className="h-full bg-[#FF7A00] transition-all duration-300 rounded-full"
               style={{
@@ -400,232 +412,262 @@ export const StudySession: React.FC<StudySessionProps> = ({
             />
           </div>
 
-          {/* Counter: richtig beantwortet / gesamt */}
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs font-medium text-[#8E8E93]" title="Richtig gewusst / Gesamt">
-              <span className="text-emerald-400 font-bold">{masteredTaskKeys.size}</span> / {totalUniqueCount}
+          {/* Counter and Close on Right */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold select-none">
+              <span className="text-[#FF7A00] font-bold">{masteredTaskKeys.size}</span>
+              <span className="text-[#8E8E93]"> / {totalUniqueCount}</span>
             </span>
 
-            {/* Switch between typing and flashcard mode */}
             <button
-              onClick={() => setCurrentInputMethod(currentInputMethod === 'typing' ? 'flashcard' : 'typing')}
-              className="p-1 rounded-full text-[#8E8E93] hover:text-[#FF7A00] transition-colors"
-              title={currentInputMethod === 'typing' ? 'Zu Aufdecken-Modus wechseln' : 'Zu Tippen-Modus wechseln'}
-            >
-              {currentInputMethod === 'typing' ? (
-                <Keyboard className="w-4 h-4 text-[#FF7A00]" />
-              ) : (
-                <Layers className="w-4 h-4 text-[#8E8E93]" />
-              )}
-            </button>
-
-            <button
+              type="button"
               onClick={onFinish}
-              className="w-8 h-8 rounded-full bg-[#242426] flex items-center justify-center text-[#8E8E93] hover:text-white transition-colors"
+              className="p-1 text-[#8E8E93] hover:text-white transition-colors"
+              title="Session beenden"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5 stroke-[2.2]" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Flashcard split container matching IMG_6344.png */}
-      <div className="max-w-md w-full mx-auto flex-1 flex flex-col justify-center py-2 space-y-3">
-        {/* Top Half of Card (Question) */}
-        <div className="relative bg-[#2C2C2E] rounded-3xl p-6 min-h-[160px] flex flex-col justify-between border border-[#3A3A3D] shadow-lg">
-          {/* Top Header inside card */}
-          <div className="flex items-center justify-between text-xs text-[#8E8E93]">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{isDeToThai ? '🇩🇪' : '🇹🇭'}</span>
-              <span className="text-[11px] font-medium text-[#8E8E93]">
-                {vocab.lesson}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {onUpdateVocab && (
-                <button
-                  type="button"
-                  onClick={() => setEditingCurrentVocab(true)}
-                  className="p-1 rounded-full text-[#8E8E93] hover:text-[#FF7A00] transition-colors cursor-pointer"
-                  title="Diese Vokabel bearbeiten"
+      {/* Single Unified Card matching IMG_6357.png */}
+      <div className="max-w-md w-full mx-auto flex-1 min-h-0 flex flex-col my-1">
+        <div className="relative bg-[#262628] border border-[#38383A] rounded-3xl p-5 flex flex-col justify-between flex-1 min-h-[200px] shadow-xl overflow-hidden">
+          {/* Card Top Row: Flag on left, 3-dots menu on right */}
+          <div className="flex items-center justify-between z-10">
+            <span
+              className="text-2xl select-none"
+              title={isDeToThai ? 'Deutsch ➔ Thai' : 'Thai ➔ Deutsch'}
+            >
+              {isDeToThai ? '🇩🇪' : '🇹🇭'}
+            </span>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCardMenu(!showCardMenu);
+                }}
+                className="p-1.5 rounded-full text-[#8E8E93] hover:text-white hover:bg-[#323236] transition-colors"
+                title="Optionen"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+
+              {/* 3-dots Dropdown Menu */}
+              {showCardMenu && (
+                <div
+                  className="absolute right-0 top-9 z-30 bg-[#1C1C1E] border border-[#3A3A3D] rounded-2xl p-1.5 shadow-2xl min-w-[210px] text-xs space-y-1 animate-in fade-in zoom-in-95 duration-150"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
+                  {onUpdateVocab && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCardMenu(false);
+                        setEditingCurrentVocab(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#2C2C2E] text-white transition-colors text-left"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-[#FF7A00]" />
+                      <span>Vokabel bearbeiten</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handlePlayAudio();
+                      setShowCardMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#2C2C2E] text-white transition-colors text-left"
+                  >
+                    <Volume2 className="w-3.5 h-3.5 text-[#FF7A00]" />
+                    <span>Aussprache abspielen</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHideRomanization(!hideRomanization);
+                      setShowCardMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#2C2C2E] text-white transition-colors text-left"
+                  >
+                    {hideRomanization ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-[#FF7A00]" />
+                        <span>Umschrift einblenden</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-[#FF7A00]" />
+                        <span>Umschrift ausblenden</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentInputMethod(currentInputMethod === 'typing' ? 'flashcard' : 'typing');
+                      setShowCardMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#2C2C2E] text-white transition-colors text-left"
+                  >
+                    <Keyboard className="w-3.5 h-3.5 text-[#FF7A00]" />
+                    <span>
+                      {currentInputMethod === 'typing'
+                        ? 'Zu Karteikarte wechseln'
+                        : 'Zu Tippen wechseln'}
+                    </span>
+                  </button>
+                  <div className="border-t border-[#2C2C2E] pt-1 px-3 py-1 text-[10px] text-[#8E8E93]">
+                    Lektion: {vocab.lesson} | Phase {currentPhase}
+                  </div>
+                </div>
               )}
-              <span className="text-[10px] bg-[#3A3A3D] text-[#FF7A00] px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                {isDeToThai ? '🇩🇪 ➔ 🇹🇭' : '🇹🇭 ➔ 🇩🇪'}
-              </span>
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white ${
-                  PHASES[currentPhase]?.badgeBg || 'bg-[#3A3A3D]'
-                }`}
-                title={`Aktuelle Richtung (${isDeToThai ? 'DE ➔ TH' : 'TH ➔ DE'}): Phase ${currentPhase}`}
-              >
-                P{currentPhase}
-              </span>
-              <span
-                className="text-[10px] bg-[#242426] text-[#8E8E93] px-1.5 py-0.5 rounded-full hidden sm:inline"
-                title={`Gegenrichtung (${isDeToThai ? 'TH ➔ DE' : 'DE ➔ TH'}): Phase ${otherDirProgress.phase}`}
-              >
-                {isDeToThai ? 'TH➔DE' : 'DE➔TH'}: P{otherDirProgress.phase}
-              </span>
             </div>
           </div>
 
-          {/* Center Text */}
-          <div className="my-auto text-center py-2">
+          {/* Center: The Word (e.g. "Weight" / "Größe / Körpergröße") */}
+          <div className="my-auto text-center px-4 py-2 z-10">
+            {/* Primary Question Prompt */}
             {isDeToThai ? (
-              <h2 className="text-2xl font-bold tracking-tight text-white px-2">
+              <h2 className="text-2xl sm:text-3xl font-medium text-white tracking-wide leading-snug">
                 {vocab.german}
               </h2>
             ) : (
               <div>
-                <h2 className="text-3xl sm:text-4xl font-semibold tracking-normal text-white font-thai mb-1 py-1">
+                <h2 className="text-3xl sm:text-4xl font-thai font-medium text-white tracking-normal leading-snug">
                   {vocab.thai}
                 </h2>
                 {!hideRomanization && vocab.romanization && (
-                  <p className="text-sm text-[#FF7A00] font-medium">
+                  <p className="text-base text-[#FF7A00] font-medium mt-1.5">
                     {vocab.romanization}
                   </p>
                 )}
               </div>
             )}
-          </div>
 
-          {/* Bottom subtle hint */}
-          <div className="text-center text-[10px] text-[#8E8E93]/80">
-            {isDeToThai
-              ? isTyping ? 'Tippe die Thai-Übersetzung ein:' : 'Wie heißt das auf Thai?'
-              : isTyping ? 'Tippe die deutsche Bedeutung ein:' : 'Wie heißt das auf Deutsch?'}
-          </div>
-        </div>
-
-        {/* Bottom Half of Card matching IMG_6344.png */}
-        <div className="relative bg-[#2C2C2E] rounded-3xl p-5 min-h-[220px] flex flex-col justify-between border border-[#3A3A3D] shadow-lg">
-          {/* Card action controls header */}
-          <div className="flex items-center justify-between text-xs text-[#8E8E93]">
-            {/* Example sentence icon toggle */}
-            <button
-              onClick={() => setShowExample(!showExample)}
-              className={`p-1.5 rounded-full transition-colors ${
-                showExample ? 'bg-[#FF7A00] text-black' : 'hover:bg-[#3A3A3D] text-[#8E8E93]'
-              }`}
-              title="Beispielsatz anzeigen"
-            >
-              <MessageSquare className="w-4 h-4" />
-            </button>
-
-            {/* Menu controls / Umschrift toggle */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setHideRomanization(!hideRomanization)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] transition-colors ${
-                  hideRomanization
-                    ? 'bg-[#FF7A00]/20 text-[#FF7A00] border border-[#FF7A00]/40'
-                    : 'bg-[#3A3A3D] text-[#D1D1D6]'
-                }`}
-                title="Lautschrift/Umschrift verdecken um Thai-Schrift zu trainieren"
-              >
-                {hideRomanization ? (
-                  <>
-                    <EyeOff className="w-3.5 h-3.5" />
-                    <span>Umschrift verdeckt</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Umschrift sichtbar</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={handlePlayAudio}
-                className="p-1.5 rounded-full hover:bg-[#3A3A3D] text-[#8E8E93] hover:text-white transition-colors"
-                title="Aussprache anhören"
-              >
-                <Volume2 className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Solution Area (shown when revealed or after typing evaluation) */}
-          <div className="my-auto text-center py-1">
-            {isRevealed ? (
-              <div className="animate-in fade-in duration-200">
+            {/* Revealed / Evaluated Solution */}
+            {isRevealed && (
+              <div className="mt-4 pt-4 border-t border-[#3A3A3D]/70 animate-in fade-in duration-200">
                 {isDeToThai ? (
                   <div>
-                    {/* Thai characters in Thonburi / Sarabun font */}
-                    <h2 className="text-3xl sm:text-4xl font-semibold tracking-normal text-white font-thai mb-1 py-1">
+                    <h3 className="text-3xl sm:text-4xl font-thai font-semibold text-white tracking-normal mb-1">
                       {vocab.thai}
-                    </h2>
-
-                    {/* Romanization / Umschrift */}
-                    {vocab.romanization && (
-                      <div className="mt-1">
-                        {!hideRomanization ? (
-                          <p className="text-base text-[#FF7A00] font-medium tracking-wide">
-                            {vocab.romanization}
-                          </p>
-                        ) : (
-                          <button
-                            onClick={() => setHideRomanization(false)}
-                            className="text-xs text-[#8E8E93] bg-[#222224] px-3 py-1 rounded-full hover:text-white transition-colors"
-                          >
-                            [Umschrift ausgeblendet - tippen zum Zeigen]
-                          </button>
-                        )}
-                      </div>
+                    </h3>
+                    {!hideRomanization && vocab.romanization && (
+                      <p className="text-base text-[#FF7A00] font-medium tracking-wide">
+                        {vocab.romanization}
+                      </p>
                     )}
                   </div>
                 ) : (
                   <div>
-                    <h2 className="text-2xl font-bold text-white mb-1">
+                    <h3 className="text-2xl sm:text-3xl font-bold text-white mb-1">
                       {vocab.german}
-                    </h2>
+                    </h3>
                   </div>
                 )}
 
-                {/* Example sentence if toggled */}
-                {showExample && (vocab.exampleThai || vocab.exampleGerman) && (
-                  <div className="mt-2.5 p-2.5 bg-[#242426] rounded-2xl border border-[#3A3A3D] text-left text-xs space-y-1">
-                    {vocab.exampleThai && (
-                      <p className="text-white font-thai text-sm">{vocab.exampleThai}</p>
-                    )}
-                    {vocab.exampleGerman && (
-                      <p className="text-[#8E8E93] italic">{vocab.exampleGerman}</p>
-                    )}
-                  </div>
+                {/* Speaker button & feedback icon */}
+                <div className="flex items-center justify-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={handlePlayAudio}
+                    className="p-2 rounded-full bg-[#323236] text-[#D1D1D6] hover:text-white hover:bg-[#3E3E42] transition-colors"
+                    title="Aussprache anhören"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                  {isEvaluated && isTyping && (
+                    <span className="text-xl" title={isTypingCorrect ? 'Richtig' : 'Abweichung'}>
+                      {isTypingCorrect ? '😊' : '☹️'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Example sentence if toggled via the speech bubble button */}
+            {showExample && (vocab.exampleThai || vocab.exampleGerman) && (
+              <div className="mt-3 p-3 bg-[#1C1C1E] rounded-2xl border border-[#3A3A3D] text-left text-xs space-y-1 animate-in fade-in duration-150">
+                {vocab.exampleThai && (
+                  <p className="text-white font-thai text-sm">{vocab.exampleThai}</p>
+                )}
+                {vocab.exampleGerman && (
+                  <p className="text-[#8E8E93] italic">{vocab.exampleGerman}</p>
                 )}
               </div>
-            ) : !isTyping ? (
-              <button
-                onClick={handleReveal}
-                className="w-full py-6 rounded-2xl border-2 border-dashed border-[#444448] text-[#8E8E93] hover:text-white hover:border-[#FF7A00] transition-colors flex flex-col items-center justify-center gap-2"
-              >
-                <Sparkles className="w-5 h-5 text-[#FF7A00]" />
-                <span className="text-sm font-semibold text-[#D1D1D6]">
-                  Lösung anzeigen
-                </span>
-                <span className="text-[11px] text-[#71717A]">
-                  Tippe hier oder auf die Leertaste
-                </span>
-              </button>
-            ) : null}
+            )}
           </div>
 
-          {/* Typing Input Box matching IMG_6344.png */}
-          {isTyping && (
-            <div className="mt-2 space-y-2">
-              <div
-                className={`relative rounded-2xl bg-[#1C1C1E] border transition-colors flex items-center overflow-hidden px-4 py-3 ${
-                  isEvaluated
-                    ? isTypingCorrect
-                      ? 'border-emerald-500/80 shadow-md shadow-emerald-500/10'
-                      : 'border-[#FF7A00] shadow-md shadow-orange-500/10'
-                    : 'border-[#3A3A3D] focus-within:border-[#FF7A00]'
-                }`}
-              >
+          {/* Right Chevron > inside card matching IMG_6357.png */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!isRevealed) handleReveal();
+            }}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 p-2 text-[#8E8E93] hover:text-white transition-colors cursor-pointer"
+            title="Lösung anzeigen"
+          >
+            <ChevronRight className="w-5 h-5 stroke-[2]" />
+          </button>
+
+          {/* Bottom-right Keyboard Icon inside card matching IMG_6357.png */}
+          <button
+            type="button"
+            onClick={() => setCurrentInputMethod(currentInputMethod === 'typing' ? 'flashcard' : 'typing')}
+            className="absolute bottom-4 right-4 p-1.5 text-[#8E8E93] hover:text-[#FF7A00] transition-colors cursor-pointer"
+            title={currentInputMethod === 'typing' ? 'Zu Karteikarte wechseln' : 'Zu Tippen wechseln'}
+          >
+            <Keyboard className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Bottom Area matching IMG_6357.png: Input row docked above keyboard */}
+      <div className="max-w-md w-full mx-auto pt-2 pb-1 sm:pb-3">
+        {/* CASE 1: Typing mode, not yet submitted */}
+        {isTyping && !isEvaluated && (
+          <div className="space-y-2">
+            {/* Thai Tone Marks Helper Row (when typing Thai script) */}
+            {isDeToThai && (
+              <div className="flex items-center justify-center gap-1.5 overflow-x-auto py-0.5">
+                <span className="text-[10px] text-[#71717A] mr-1 select-none">Tonzeichen:</span>
+                {['่', '้', '๊', '๋', '์', '็'].map((char) => (
+                  <button
+                    key={char}
+                    type="button"
+                    onClick={() => handleInsertThaiChar(char)}
+                    className="w-7 h-7 bg-[#242426] hover:bg-[#323236] border border-[#3A3A3D] rounded-lg text-sm font-thai text-white flex items-center justify-center active:scale-95 transition-all"
+                  >
+                    {char}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Input Row matching IMG_6357.png */}
+            <div className="flex items-center gap-2.5">
+              {/* Input Pill Container with Speech bubble button inside */}
+              <div className="flex-1 flex items-center bg-[#28282A] border border-[#38383A] focus-within:border-[#FF7A00] rounded-2xl px-2 py-1.5 transition-colors shadow-inner">
+                {/* Speech Bubble Icon (Beispielsatz) */}
+                <button
+                  type="button"
+                  onClick={() => setShowExample(!showExample)}
+                  className={`p-2 rounded-xl transition-colors ${
+                    showExample
+                      ? 'bg-[#FF7A00] text-black'
+                      : 'bg-[#38383C] text-[#8E8E93] hover:text-white'
+                  }`}
+                  title="Beispielsatz anzeigen"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                </button>
+
+                {/* Text input */}
                 <input
                   ref={inputRef}
                   type="text"
@@ -641,7 +683,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
                       }
                     }
                   }}
-                  disabled={isEvaluated}
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"
@@ -655,61 +696,25 @@ export const StudySession: React.FC<StudySessionProps> = ({
                       ? 'Thai oder Lautschrift tippen...'
                       : 'Thai Schriftzeichen tippen...'
                   }
-                  className="w-full bg-transparent text-white text-base focus:outline-none placeholder-[#71717A] font-thai"
+                  className="w-full bg-transparent text-white text-base px-3 py-1 focus:outline-none placeholder-[#71717A] font-thai"
                 />
-
-                {/* Status Icon matching IMG_6344.png */}
-                {isEvaluated && (
-                  <div className="shrink-0 ml-2">
-                    {isTypingCorrect ? (
-                      <span className="text-xl" title="Richtig!">😊</span>
-                    ) : (
-                      <span className="text-2xl text-[#FF7A00]" title="Abweichung">☹️</span>
-                    )}
-                  </div>
-                )}
               </div>
 
-              {/* Thai Tone Marks Helper Row (when typing Thai script) */}
-              {!isEvaluated && isDeToThai && (
-                <div className="flex items-center justify-center gap-1.5 pt-1 overflow-x-auto">
-                  <span className="text-[10px] text-[#71717A] mr-1">Tonzeichen:</span>
-                  {['่', '้', '๊', '๋', '์', '็'].map((char) => (
-                    <button
-                      key={char}
-                      type="button"
-                      onClick={() => handleInsertThaiChar(char)}
-                      className="w-7 h-7 bg-[#242426] hover:bg-[#323236] border border-[#3A3A3D] rounded-lg text-sm font-thai text-white flex items-center justify-center active:scale-95"
-                    >
-                      {char}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Circular Send / Submit Button matching IMG_6357.png */}
+              <button
+                type="button"
+                onClick={handleCheckTyping}
+                disabled={!userInput.trim()}
+                className={`w-12 h-12 rounded-full border border-[#38383A] flex items-center justify-center transition-all active:scale-95 shrink-0 ${
+                  userInput.trim()
+                    ? 'bg-[#FF7A00] text-black shadow-lg shadow-orange-500/20 hover:bg-[#FF881A]'
+                    : 'bg-[#28282A] text-[#8E8E93] hover:text-white hover:bg-[#323236]'
+                }`}
+                title="Antwort prüfen"
+              >
+                <Send className="w-5 h-5 -rotate-45 ml-0.5" />
+              </button>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom Sticky Action Buttons matching IMG_6344.png */}
-      <div className="max-w-md w-full mx-auto pt-2 pb-2">
-        {/* CASE 1: Typing mode, not yet submitted */}
-        {isTyping && !isEvaluated && (
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={handleReveal}
-              className="py-4 rounded-full bg-[#242426] border border-[#3A3A3D] text-white font-semibold text-sm hover:bg-[#2C2C2E] transition-colors active:scale-[0.99]"
-            >
-              Lösung anzeigen
-            </button>
-            <button
-              onClick={handleCheckTyping}
-              disabled={!userInput.trim()}
-              className="py-4 rounded-full bg-[#FF7A00] text-black font-semibold text-sm hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <span>Antwort prüfen</span>
-              <ArrowRight className="w-4 h-4 text-black" />
-            </button>
           </div>
         )}
 
@@ -718,6 +723,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
           isTypingCorrect ? (
             /* Vokabel genau so eingegeben wie in der Lösung -> Nur der Button "Gewusst" */
             <button
+              type="button"
               onClick={() => handleRate(true)}
               disabled={isSubmitting}
               className="w-full py-4 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-base shadow-lg shadow-emerald-500/25 transition-all active:scale-[0.99] flex items-center justify-center gap-2"
@@ -730,6 +736,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
             <div className="grid grid-cols-2 gap-3">
               {/* Roter Pfeil: Nicht gewusst / Wiederholen */}
               <button
+                type="button"
                 onClick={() => handleRate(false)}
                 disabled={isSubmitting}
                 className="py-4 rounded-full bg-[#242426] border border-rose-500/40 text-rose-400 font-semibold text-sm hover:bg-[#2C2C2E] hover:border-rose-500 transition-colors active:scale-[0.99] flex items-center justify-center gap-2"
@@ -740,6 +747,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
               {/* Grüner Pfeil: Gelten lassen */}
               <button
+                type="button"
                 onClick={() => handleRate(true)}
                 disabled={isSubmitting}
                 className="py-4 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/25 transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
@@ -751,9 +759,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
           )
         )}
 
-        {/* CASE 3: Flashcard mode / Thai -> Deutsch (Lösung anzeigen -> roter/grüner Pfeil) */}
+        {/* CASE 3: Flashcard mode / Aufdecken-Modus */}
         {!isTyping && !isRevealed && (
           <button
+            type="button"
             onClick={handleReveal}
             className="w-full py-4 rounded-full bg-[#FF7A00] text-black font-semibold text-base hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
           >
@@ -766,6 +775,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
           <div className="grid grid-cols-2 gap-3">
             {/* Roter Pfeil: Nicht gewusst */}
             <button
+              type="button"
               onClick={() => handleRate(false)}
               disabled={isSubmitting}
               className="py-4 rounded-full bg-[#242426] border border-rose-500/40 text-rose-400 font-semibold text-sm hover:bg-[#2C2C2E] hover:border-rose-500 transition-colors active:scale-[0.99] flex items-center justify-center gap-2"
@@ -776,6 +786,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
             {/* Grüner Pfeil: Gewusst */}
             <button
+              type="button"
               onClick={() => handleRate(true)}
               disabled={isSubmitting}
               className="py-4 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/25 transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
