@@ -65,6 +65,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   vocabularies,
   progressMap,
   onImportVocabs,
+  onRestoreVocab,
   defaultHideRomanization,
   onToggleDefaultHideRomanization,
   defaultInputMethod,
