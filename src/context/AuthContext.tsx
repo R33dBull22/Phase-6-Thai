@@ -8,6 +8,7 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
+  sendPasswordResetEmail as fbSendPasswordResetEmail,
 } from 'firebase/auth';
 import { auth, testConnection } from '../firebase/config';
 
@@ -34,6 +35,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (email: string, pass: string, registrationCode: string, displayName?: string) => Promise<void>;
+  resetPasswordWithEmail: (email: string, registrationCode?: string, newPassword?: string) => Promise<{ method: 'firebase_email' | 'direct_reset'; message: string }>;
   logout: () => Promise<void>;
   authError: string | null;
   clearAuthError: () => void;
@@ -322,6 +324,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resetPasswordWithEmail = async (
+    email: string,
+    registrationCode?: string,
+    newPassword?: string
+  ): Promise<{ method: 'firebase_email' | 'direct_reset'; message: string }> => {
+    setAuthError(null);
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      const msg = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    // Attempt Firebase Password Reset Email first
+    let firebaseSucceeded = false;
+    let firebaseErrorMsg = '';
+
+    try {
+      await fbSendPasswordResetEmail(auth, cleanEmail);
+      firebaseSucceeded = true;
+    } catch (fbErr: any) {
+      console.info('Firebase sendPasswordResetEmail info/fallback:', fbErr?.code || fbErr?.message);
+      if (fbErr?.code === 'auth/user-not-found') {
+        firebaseErrorMsg = 'Kein Konto mit dieser E-Mail gefunden.';
+      } else if (fbErr?.code === 'auth/invalid-email') {
+        firebaseErrorMsg = 'Ungültige E-Mail-Adresse.';
+      } else {
+        firebaseErrorMsg = fbErr?.message || 'Passwort-Zurücksetzen über Firebase fehlgeschlagen.';
+      }
+    }
+
+    if (firebaseSucceeded) {
+      return {
+        method: 'firebase_email',
+        message: 'Eine E-Mail zum Zurücksetzen deines Passworts wurde an deine Adresse gesendet. Bitte prüfe dein Postfach (auch Spam).',
+      };
+    }
+
+    // If Firebase reset failed or user is in local storage account registry:
+    // If registrationCode and newPassword are provided, verify passcode and update local account
+    const accounts = getStoredAccounts();
+    const localAccount = accounts[cleanEmail];
+
+    if (registrationCode && newPassword) {
+      const isCodeValid = await checkRegistrationCode(registrationCode);
+      if (!isCodeValid) {
+        const msg = 'Ungültiges Registrierungs-Passwort. Bitte gib das korrekte Zugangs-Passwort von Thai Hasis ein.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
+
+      if (newPassword.trim().length < 6) {
+        const msg = 'Das neue Passwort muss mindestens 6 Zeichen lang sein.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
+
+      if (localAccount) {
+        const passwordHash = await hashPassword(newPassword.trim());
+        accounts[cleanEmail] = {
+          ...localAccount,
+          passwordHash,
+        };
+        saveStoredAccounts(accounts);
+
+        return {
+          method: 'direct_reset',
+          message: 'Dein Passwort wurde erfolgreich aktualisiert! Du kannst dich jetzt damit anmelden.',
+        };
+      }
+    }
+
+    // If local account exists but no newPassword/registrationCode was supplied
+    if (localAccount) {
+      // Prompt user that they can directly reset with the registration passcode
+      throw new Error(
+        'LOCAL_RESET_NEEDS_CODE:Dieses Konto ist lokal gespeichert. Bitte gib dein neues Passwort zusammen mit dem Registrierungs-Passwort ein, um es sofort zurückzusetzen.'
+      );
+    }
+
+    // If neither Firebase succeeded nor local account found:
+    const finalErr = firebaseErrorMsg || 'Kein Benutzerkonto mit dieser E-Mail-Adresse gefunden.';
+    setAuthError(finalErr);
+    throw new Error(finalErr);
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -344,6 +433,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         loginWithEmail,
         registerWithEmail,
+        resetPasswordWithEmail,
         logout,
         authError,
         clearAuthError,

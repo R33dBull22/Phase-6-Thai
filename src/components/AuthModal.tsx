@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, Check, Eye, EyeOff, ShieldCheck, KeyRound } from 'lucide-react';
+import { X, Lock, Mail, User, Check, Eye, EyeOff, ShieldCheck, KeyRound, ArrowLeft, HelpCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthModalProps {
@@ -8,18 +8,31 @@ interface AuthModalProps {
   isClosable?: boolean;
 }
 
+type AuthMode = 'login' | 'register' | 'forgot_password';
+
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosable = true }) => {
-  const { loginWithGoogle, loginWithEmail, registerWithEmail, authError, clearAuthError } = useAuth();
-  const [isRegister, setIsRegister] = useState(false);
+  const {
+    loginWithGoogle,
+    loginWithEmail,
+    registerWithEmail,
+    resetPasswordWithEmail,
+    authError,
+    clearAuthError,
+  } = useAuth();
+
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [registrationCode, setRegistrationCode] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showRegCode, setShowRegCode] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showDirectResetFields, setShowDirectResetFields] = useState(false);
 
   if (!isOpen) return null;
 
@@ -29,6 +42,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
     setSuccessMessage(null);
     clearAuthError();
     onClose();
+  };
+
+  const switchMode = (newMode: AuthMode) => {
+    setMode(newMode);
+    setLocalError(null);
+    setSuccessMessage(null);
+    clearAuthError();
+    setShowDirectResetFields(false);
   };
 
   const handleGoogle = async () => {
@@ -51,8 +72,63 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
     }
   };
 
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    setSuccessMessage(null);
+    clearAuthError();
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setLocalError('Bitte gib eine gültige E-Mail-Adresse ein.');
+      return;
+    }
+
+    if (showDirectResetFields) {
+      if (!registrationCode.trim()) {
+        setLocalError('Bitte gib das Registrierungs-Passwort von Thai Hasis ein.');
+        return;
+      }
+      if (newPassword.trim().length < 6) {
+        setLocalError('Das neue Passwort muss mindestens 6 Zeichen lang sein.');
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await resetPasswordWithEmail(
+        cleanEmail,
+        registrationCode.trim(),
+        newPassword.trim()
+      );
+      setSuccessMessage(res.message);
+
+      if (res.method === 'direct_reset') {
+        setTimeout(() => {
+          setPassword(newPassword);
+          switchMode('login');
+        }, 1500);
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Fehler beim Zurücksetzen des Passworts.';
+      if (msg.startsWith('LOCAL_RESET_NEEDS_CODE:')) {
+        setShowDirectResetFields(true);
+        setLocalError(msg.replace('LOCAL_RESET_NEEDS_CODE:', ''));
+      } else {
+        setLocalError(msg);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === 'forgot_password') {
+      return handleForgotPasswordSubmit(e);
+    }
+
     setLocalError(null);
     setSuccessMessage(null);
     clearAuthError();
@@ -76,14 +152,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
       return;
     }
 
-    if (isRegister && !cleanRegCode) {
+    if (mode === 'register' && !cleanRegCode) {
       setLocalError('Bitte gib das Registrierungs-Passwort ein.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      if (isRegister) {
+      if (mode === 'register') {
         await registerWithEmail(cleanEmail, cleanPassword, cleanRegCode, displayName.trim());
         setSuccessMessage('Konto erfolgreich erstellt! Willkommen bei Thai Hasis!');
       } else {
@@ -97,13 +173,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
       }, 700);
     } catch (err: any) {
       const msg = err.message || 'Authentifizierungsfehler';
-      // Clean up common technical error messages into clear German
       if (msg.includes('Registrierungs-Passwort')) {
         setLocalError(msg);
       } else if (msg.includes('bereits registriert') || msg.includes('email-already-in-use')) {
         setLocalError('Diese E-Mail ist bereits registriert. Bitte wähle den Tab „Anmelden“.');
       } else if (msg.includes('Falsches Passwort') || msg.includes('wrong-password') || msg.includes('INVALID_LOGIN_CREDENTIALS')) {
-        setLocalError('Falsches Passwort. Bitte überprüfe deine Eingabe.');
+        setLocalError('Falsches Passwort. Bitte überprüfe deine Eingabe oder nutze „Passwort vergessen?“.');
       } else if (msg.includes('Kein Konto') || msg.includes('user-not-found')) {
         setLocalError('Kein Konto mit dieser E-Mail gefunden. Bitte erstelle zuerst ein Konto mit dem Registrierungs-Passwort.');
       } else {
@@ -125,10 +200,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-4">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🇹🇭</span>
+            {mode === 'forgot_password' ? (
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                className="w-8 h-8 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white transition-colors cursor-pointer mr-1"
+                title="Zurück zum Login"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            ) : (
+              <span className="text-xl">🇹🇭</span>
+            )}
             <div>
               <h2 className="text-base font-bold text-white">
-                {isRegister ? 'Konto erstellen' : 'Anmelden'}
+                {mode === 'register'
+                  ? 'Konto erstellen'
+                  : mode === 'forgot_password'
+                  ? 'Passwort vergessen'
+                  : 'Anmelden'}
               </h2>
               <p className="text-[11px] text-[#8E8E93]">Thai Hasis Vokabeltrainer</p>
             </div>
@@ -136,15 +226,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
           {isClosable && (
             <button
               onClick={handleClose}
-              className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white"
+              className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {/* 1-Click Google Sign-in for existing accounts */}
-        {!isRegister && (
+        {/* 1-Click Google Sign-in for existing accounts (only in login mode) */}
+        {mode === 'login' && (
           <>
             <button
               type="button"
@@ -181,33 +271,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
           </>
         )}
 
-        {/* Tab Switcher */}
-        <div className="flex p-1 bg-[#242426] rounded-xl border border-[#323236] mb-4 text-xs font-semibold">
-          <button
-            onClick={() => {
-              setIsRegister(false);
-              setLocalError(null);
-              setSuccessMessage(null);
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-colors cursor-pointer ${
-              !isRegister ? 'bg-[#FF7A00] text-black shadow' : 'text-[#8E8E93] hover:text-white'
-            }`}
-          >
-            Anmelden
-          </button>
-          <button
-            onClick={() => {
-              setIsRegister(true);
-              setLocalError(null);
-              setSuccessMessage(null);
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-colors cursor-pointer ${
-              isRegister ? 'bg-[#FF7A00] text-black shadow' : 'text-[#8E8E93] hover:text-white'
-            }`}
-          >
-            Registrieren
-          </button>
-        </div>
+        {/* Tab Switcher for login & register modes */}
+        {mode !== 'forgot_password' && (
+          <div className="flex p-1 bg-[#242426] rounded-xl border border-[#323236] mb-4 text-xs font-semibold">
+            <button
+              onClick={() => switchMode('login')}
+              className={`flex-1 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                mode === 'login' ? 'bg-[#FF7A00] text-black shadow' : 'text-[#8E8E93] hover:text-white'
+              }`}
+            >
+              Anmelden
+            </button>
+            <button
+              onClick={() => switchMode('register')}
+              className={`flex-1 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                mode === 'register' ? 'bg-[#FF7A00] text-black shadow' : 'text-[#8E8E93] hover:text-white'
+              }`}
+            >
+              Registrieren
+            </button>
+          </div>
+        )}
 
         {/* Success Message Banner */}
         {successMessage && (
@@ -224,116 +308,247 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, isClosabl
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {isRegister && (
+        {/* Forgot Password Mode Form */}
+        {mode === 'forgot_password' ? (
+          <form onSubmit={handleForgotPasswordSubmit} className="space-y-3">
+            <p className="text-xs text-[#A1A1A6] leading-relaxed">
+              Gib die E-Mail-Adresse deines Kontos ein. Wir senden dir einen Link zum Zurücksetzen oder du kannst es mit dem Registrierungs-Passwort direkt neu vergeben.
+            </p>
+
             <div>
-              <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">Name (Optional)</label>
+              <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail-Adresse</label>
               <div className="relative">
-                <User className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
                 <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Dein Name"
-                  autoComplete="name"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@beispiel.de"
+                  autoComplete="email"
+                  required
                   className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
                 />
               </div>
             </div>
-          )}
 
-          <div>
-            <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@beispiel.de"
-                autoComplete="email"
-                required
-                className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">Passwort</label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Mindestens 6 Zeichen"
-                autoComplete={isRegister ? 'new-password' : 'current-password'}
-                required
-                className="w-full pl-9 pr-10 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
-              />
+            {/* Direct Reset Option with Registration Passcode */}
+            <div className="pt-1">
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-                className="absolute right-3 top-2.5 text-[#8E8E93] hover:text-white cursor-pointer"
+                onClick={() => setShowDirectResetFields(!showDirectResetFields)}
+                className="text-[11px] text-[#FF7A00] hover:underline flex items-center gap-1 cursor-pointer font-medium"
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>
+                  {showDirectResetFields
+                    ? 'Direkt-Reset ausblenden'
+                    : 'Passwort sofort mit Thai Hasis Zugangs-Passwort neu setzen'}
+                </span>
               </button>
             </div>
-          </div>
 
-          {/* Registration Passkey Field */}
-          {isRegister && (
-            <div className="bg-[#262118] p-3 rounded-xl border border-[#FF7A00]/40">
+            {showDirectResetFields && (
+              <div className="space-y-3 p-3 bg-[#262118] border border-[#FF7A00]/40 rounded-xl animate-in fade-in">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] text-[#FF7A00] font-semibold">
+                      Registrierungs-Passwort
+                    </label>
+                    <span className="text-[10px] text-[#8E8E93]">Erforderlich</span>
+                  </div>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-[#FF7A00] absolute left-3 top-3" />
+                    <input
+                      type={showRegCode ? 'text' : 'password'}
+                      value={registrationCode}
+                      onChange={(e) => setRegistrationCode(e.target.value)}
+                      placeholder="Zugangs-Passwort eingeben"
+                      autoComplete="off"
+                      className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#FF7A00]/50 rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegCode(!showRegCode)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-2.5 text-[#8E8E93] hover:text-white cursor-pointer"
+                    >
+                      {showRegCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-[#D1D1D6] mb-1 font-medium">Neues Passwort</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Mindestens 6 Zeichen"
+                      autoComplete="new-password"
+                      className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-2.5 text-[#8E8E93] hover:text-white cursor-pointer"
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full py-3 rounded-full bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting
+                ? 'Wird verarbeitet...'
+                : showDirectResetFields
+                ? 'Neues Passwort jetzt speichern'
+                : 'Link zum Zurücksetzen anfordern'}
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                className="text-xs text-[#8E8E93] hover:text-white cursor-pointer transition-colors"
+              >
+                Zurück zur Anmeldung
+              </button>
+            </div>
+          </form>
+        ) : (
+          /* Login & Registration Form */
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {mode === 'register' && (
+              <div>
+                <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">Name (Optional)</label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Dein Name"
+                    autoComplete="name"
+                    className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] text-[#8E8E93] mb-1 font-medium">E-Mail</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@beispiel.de"
+                  autoComplete="email"
+                  required
+                  className="w-full pl-9 pr-3 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                />
+              </div>
+            </div>
+
+            <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] text-[#FF7A00] font-semibold">
-                  Registrierungs-Passwort
-                </label>
-                <span className="text-[10px] text-[#8E8E93]">Erforderlich</span>
+                <label className="block text-[11px] text-[#8E8E93] font-medium">Passwort</label>
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode('forgot_password')}
+                    tabIndex={-1}
+                    className="text-[11px] text-[#FF7A00] hover:underline cursor-pointer"
+                  >
+                    Passwort vergessen?
+                  </button>
+                )}
               </div>
               <div className="relative">
-                <KeyRound className="w-4 h-4 text-[#FF7A00] absolute left-3 top-3" />
+                <Lock className="w-4 h-4 text-[#8E8E93] absolute left-3 top-3" />
                 <input
-                  type={showRegCode ? 'text' : 'password'}
-                  value={registrationCode}
-                  onChange={(e) => setRegistrationCode(e.target.value)}
-                  placeholder="Zugangs-Passwort eingeben"
-                  autoComplete="off"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mindestens 6 Zeichen"
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                   required
-                  className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#FF7A00]/50 rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                  className="w-full pl-9 pr-10 py-2 bg-[#242426] border border-[#323236] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowRegCode(!showRegCode)}
+                  onClick={() => setShowPassword(!showPassword)}
                   tabIndex={-1}
                   className="absolute right-3 top-2.5 text-[#8E8E93] hover:text-white cursor-pointer"
                 >
-                  {showRegCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-[10px] text-[#D1D1D6] mt-1.5 leading-snug">
-                Für die Registrierung benötigst du das private Zugangs-Passwort von Thai Hasis.
-              </p>
             </div>
-          )}
 
-          <div className="pt-1 flex items-center gap-1.5 text-[11px] text-[#8E8E93]">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#FF7A00] shrink-0" />
-            <span>Zugang nur für registrierte Mitglieder. Vokabeln & Phasen werden sicher gespeichert.</span>
-          </div>
+            {/* Registration Passkey Field */}
+            {mode === 'register' && (
+              <div className="bg-[#262118] p-3 rounded-xl border border-[#FF7A00]/40">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] text-[#FF7A00] font-semibold">
+                    Registrierungs-Passwort
+                  </label>
+                  <span className="text-[10px] text-[#8E8E93]">Erforderlich</span>
+                </div>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-[#FF7A00] absolute left-3 top-3" />
+                  <input
+                    type={showRegCode ? 'text' : 'password'}
+                    value={registrationCode}
+                    onChange={(e) => setRegistrationCode(e.target.value)}
+                    placeholder="Zugangs-Passwort eingeben"
+                    autoComplete="off"
+                    required
+                    className="w-full pl-9 pr-10 py-2 bg-[#1C1C1E] border border-[#FF7A00]/50 rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegCode(!showRegCode)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-2.5 text-[#8E8E93] hover:text-white cursor-pointer"
+                  >
+                    {showRegCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#D1D1D6] mt-1.5 leading-snug">
+                  Für die Registrierung benötigst du das private Zugangs-Passwort von Thai Hasis.
+                </p>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting || Boolean(successMessage)}
-            className="w-full py-3 rounded-full bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
-          >
-            {isSubmitting
-              ? 'Wird verarbeitet...'
-              : isRegister
-              ? 'Konto jetzt erstellen'
-              : 'Anmelden'}
-          </button>
-        </form>
+            <div className="pt-1 flex items-center gap-1.5 text-[11px] text-[#8E8E93]">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#FF7A00] shrink-0" />
+              <span>Zugang nur für registrierte Mitglieder. Vokabeln & Phasen werden sicher gespeichert.</span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting || Boolean(successMessage)}
+              className="w-full py-3 rounded-full bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] mt-2 cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting
+                ? 'Wird verarbeitet...'
+                : mode === 'register'
+                ? 'Konto jetzt erstellen'
+                : 'Anmelden'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
