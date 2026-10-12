@@ -656,6 +656,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   data-form-type="other"
                   data-lpignore="true"
                   aria-autocomplete="none"
+                  tabIndex={-1}
                   enterKeyHint="send"
                   inputMode="text"
                   placeholder={
