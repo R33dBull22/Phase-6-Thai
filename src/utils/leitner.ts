@@ -80,13 +80,11 @@ export function calculateNextReviewDate(nextPhase: number): string {
 }
 
 /**
- * When answering incorrectly, review is due today or tomorrow
+ * When answering incorrectly, review is due immediately today
  */
 export function calculateResetReviewDate(): string {
-  const now = new Date();
-  // due in a few hours or next day for re-review
-  now.setMinutes(now.getMinutes() + 10);
-  return now.toISOString();
+  // Immediately due (1 second in past ensures <= Date.now() is always true)
+  return new Date(Date.now() - 1000).toISOString();
 }
 
 /**

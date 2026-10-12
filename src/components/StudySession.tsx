@@ -609,16 +609,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
           >
             <ChevronRight className="w-5 h-5 stroke-[2]" />
           </button>
-
-          {/* Bottom-right Keyboard Icon inside card matching IMG_6357.png */}
-          <button
-            type="button"
-            onClick={() => setCurrentInputMethod(currentInputMethod === 'typing' ? 'flashcard' : 'typing')}
-            className="absolute bottom-4 right-4 p-1.5 text-[#8E8E93] hover:text-[#FF7A00] transition-colors cursor-pointer"
-            title={currentInputMethod === 'typing' ? 'Zu Karteikarte wechseln' : 'Zu Tippen wechseln'}
-          >
-            <Keyboard className="w-5 h-5" />
-          </button>
         </div>
       </div>
 
@@ -666,6 +656,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   data-form-type="other"
                   data-lpignore="true"
                   aria-autocomplete="none"
+                  enterKeyHint="send"
                   inputMode="text"
                   placeholder={
                     acceptRomanizationTyping
@@ -676,17 +667,12 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 />
               </div>
 
-              {/* Circular Send / Submit Button matching IMG_6357.png */}
+              {/* Circular Send / Submit Button matching IMG_6357.png: always clickable, allows submitting empty */}
               <button
                 type="button"
                 onClick={handleCheckTyping}
-                disabled={!userInput.trim()}
-                className={`w-12 h-12 rounded-full border border-[#38383A] flex items-center justify-center transition-all active:scale-95 shrink-0 ${
-                  userInput.trim()
-                    ? 'bg-[#FF7A00] text-black shadow-lg shadow-orange-500/20 hover:bg-[#FF881A]'
-                    : 'bg-[#28282A] text-[#8E8E93] hover:text-white hover:bg-[#323236]'
-                }`}
-                title="Antwort prüfen"
+                className="w-12 h-12 rounded-full border border-[#FF7A00] bg-[#FF7A00] hover:bg-[#FF881A] text-black shadow-lg shadow-orange-500/20 flex items-center justify-center transition-all active:scale-95 shrink-0 cursor-pointer"
+                title="Antwort abschicken"
               >
                 <Send className="w-5 h-5 -rotate-45 ml-0.5" />
               </button>
