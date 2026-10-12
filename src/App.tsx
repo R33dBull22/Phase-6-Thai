@@ -12,6 +12,9 @@ import {
   addVocabToUserDeck,
   syncLocalVocabulariesToCloud,
   subscribeToCommunityVocabularies,
+  renameLesson,
+  deleteLesson,
+  moveVocabulariesToLesson,
 } from './services/vocabService';
 import { Navigation } from './components/Navigation';
 import { LearnView } from './components/LearnView';
@@ -41,7 +44,8 @@ function AppContent() {
   // User preference: default hide romanization
   const [defaultHideRomanization, setDefaultHideRomanization] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('phase6_hide_romanization') === 'true';
+      const stored = localStorage.getItem('thai_hasis_hide_romanization') || localStorage.getItem('phase6_hide_romanization');
+      return stored === 'true';
     } catch {
       return false;
     }
@@ -50,7 +54,7 @@ function AppContent() {
   // User preference: default typing input mode
   const [defaultInputMethod, setDefaultInputMethod] = useState<StudyInputMethod>(() => {
     try {
-      const stored = localStorage.getItem('phase6_default_input_method');
+      const stored = localStorage.getItem('thai_hasis_default_input_method') || localStorage.getItem('phase6_default_input_method');
       return (stored as StudyInputMethod) || 'typing';
     } catch {
       return 'typing';
@@ -60,7 +64,7 @@ function AppContent() {
   // User preference: default study direction
   const [studyDirection, setStudyDirection] = useState<StudyDirection>(() => {
     try {
-      const stored = localStorage.getItem('phase6_study_direction');
+      const stored = localStorage.getItem('thai_hasis_study_direction') || localStorage.getItem('phase6_study_direction');
       return (stored as StudyDirection) || 'both';
     } catch {
       return 'both';
@@ -70,7 +74,7 @@ function AppContent() {
   // User preference: default study mode
   const [studyMode, setStudyMode] = useState<StudyMode>(() => {
     try {
-      const stored = localStorage.getItem('phase6_study_mode');
+      const stored = localStorage.getItem('thai_hasis_study_mode') || localStorage.getItem('phase6_study_mode');
       return (stored as StudyMode) || 'skip_preview';
     } catch {
       return 'skip_preview';
@@ -80,7 +84,7 @@ function AppContent() {
   // User preference: accept romanization when typing
   const [acceptRomanizationTyping, setAcceptRomanizationTyping] = useState<boolean>(() => {
     try {
-      const stored = localStorage.getItem('phase6_accept_romanization');
+      const stored = localStorage.getItem('thai_hasis_accept_romanization') || localStorage.getItem('phase6_accept_romanization');
       return stored !== 'false';
     } catch {
       return true;
@@ -90,28 +94,28 @@ function AppContent() {
   const handleToggleHideRomanization = (val: boolean) => {
     setDefaultHideRomanization(val);
     try {
-      localStorage.setItem('phase6_hide_romanization', String(val));
+      localStorage.setItem('thai_hasis_hide_romanization', String(val));
     } catch {}
   };
 
   const handleToggleDefaultInputMethod = (val: StudyInputMethod) => {
     setDefaultInputMethod(val);
     try {
-      localStorage.setItem('phase6_default_input_method', val);
+      localStorage.setItem('thai_hasis_default_input_method', val);
     } catch {}
   };
 
   const handleToggleStudyDirection = (val: StudyDirection) => {
     setStudyDirection(val);
     try {
-      localStorage.setItem('phase6_study_direction', val);
+      localStorage.setItem('thai_hasis_study_direction', val);
     } catch {}
   };
 
   const handleToggleStudyMode = (val: StudyMode) => {
     setStudyMode(val);
     try {
-      localStorage.setItem('phase6_study_mode', val);
+      localStorage.setItem('thai_hasis_study_mode', val);
     } catch {}
   };
 
@@ -124,21 +128,28 @@ function AppContent() {
     setStudyDirection(direction);
     setDefaultInputMethod(inputMethod);
     try {
-      localStorage.setItem('phase6_study_mode', mode);
-      localStorage.setItem('phase6_study_direction', direction);
-      localStorage.setItem('phase6_default_input_method', inputMethod);
+      localStorage.setItem('thai_hasis_study_mode', mode);
+      localStorage.setItem('thai_hasis_study_direction', direction);
+      localStorage.setItem('thai_hasis_default_input_method', inputMethod);
     } catch {}
   };
 
   const handleToggleAcceptRomanizationTyping = (val: boolean) => {
     setAcceptRomanizationTyping(val);
     try {
-      localStorage.setItem('phase6_accept_romanization', String(val));
+      localStorage.setItem('thai_hasis_accept_romanization', String(val));
     } catch {}
   };
 
-  // Load vocabularies & progress
+  // Load vocabularies & progress (only when logged in!)
   const loadAllData = async () => {
+    if (!user) {
+      setVocabularies([]);
+      setProgressMap({});
+      setLoadingData(false);
+      return;
+    }
+
     setLoadingData(true);
     try {
       // 1. Upload any locally created vocabularies to Firestore so all users see them
@@ -148,7 +159,7 @@ function AppContent() {
       const vocabs = await fetchCommunityVocabularies();
       setVocabularies(vocabs);
 
-      const userId = user?.uid || 'local_guest';
+      const userId = user.uid;
       const prog = await fetchUserProgress(userId);
       setProgressMap(prog);
 
@@ -168,14 +179,20 @@ function AppContent() {
 
   useEffect(() => {
     if (!authLoading) {
-      loadAllData();
+      if (user) {
+        loadAllData();
 
-      // Subscribe to real-time updates from Firestore so new/edited vocabularies appear immediately
-      const unsubscribe = subscribeToCommunityVocabularies((remoteVocabs) => {
-        setVocabularies(remoteVocabs);
-      });
+        // Subscribe to real-time updates from Firestore
+        const unsubscribe = subscribeToCommunityVocabularies((remoteVocabs) => {
+          setVocabularies(remoteVocabs);
+        });
 
-      return () => unsubscribe();
+        return () => unsubscribe();
+      } else {
+        setVocabularies([]);
+        setProgressMap({});
+        setLoadingData(false);
+      }
     }
   }, [authLoading, user?.uid]);
 
@@ -198,7 +215,8 @@ function AppContent() {
 
   // Answer handler in active study session
   const handleAnswerReview = async (vocabId: string, isCorrect: boolean): Promise<UserProgress> => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) throw new Error('Nicht angemeldet');
+    const userId = user.uid;
     const curProg = progressMap[vocabId];
     const updated = await recordReviewResult(userId, vocabId, curProg, isCorrect);
     setProgressMap((prev) => ({
@@ -210,7 +228,8 @@ function AppContent() {
 
   // Add new vocabulary handler
   const handleAddVocab = async (newVocab: Omit<Vocabulary, 'id' | 'createdAt'>) => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) return;
+    const userId = user.uid;
     const created = await addVocabulary(newVocab, userId);
     setVocabularies((prev) => [created, ...prev]);
 
@@ -221,29 +240,35 @@ function AppContent() {
 
   // Batch add to deck
   const handleBatchAddToDeck = async (vocabIds: string[]) => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) return;
+    const userId = user.uid;
     await addBatchToUserDeck(userId, vocabIds);
     const updated = await fetchUserProgress(userId);
     setProgressMap(updated);
   };
 
-  // CSV Import handler
+  // Import handler with phase support (phase applied ONLY to current user's progress)
   const handleImportVocabs = async (
-    items: Omit<Vocabulary, 'id' | 'createdAt'>[]
+    items: (Omit<Vocabulary, 'id' | 'createdAt'> & { phase?: number })[]
   ): Promise<number> => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) return 0;
+    const userId = user.uid;
     let count = 0;
-    const addedIds: string[] = [];
+    const addedDeckItems: { vocabId: string; phase: number }[] = [];
 
     for (const item of items) {
-      const created = await addVocabulary(item, userId);
+      const { phase, ...vocabData } = item;
+      const created = await addVocabulary(vocabData, userId);
       setVocabularies((prev) => [created, ...prev]);
-      addedIds.push(created.id);
+      addedDeckItems.push({
+        vocabId: created.id,
+        phase: phase && phase >= 1 && phase <= 6 ? phase : 1,
+      });
       count++;
     }
 
-    if (addedIds.length > 0) {
-      await addBatchToUserDeck(userId, addedIds);
+    if (addedDeckItems.length > 0) {
+      await addBatchToUserDeck(userId, addedDeckItems);
       const updated = await fetchUserProgress(userId);
       setProgressMap(updated);
     }
@@ -251,12 +276,43 @@ function AppContent() {
     return count;
   };
 
+  // Rename lesson across all cards
+  const handleRenameLesson = async (oldName: string, newName: string) => {
+    await renameLesson(oldName, newName);
+    setVocabularies((prev) =>
+      prev.map((v) => (v.lesson === oldName ? { ...v, lesson: newName } : v))
+    );
+  };
+
+  // Delete lesson
+  const handleDeleteLesson = async (lessonName: string, deleteVocabs: boolean, moveToLesson?: string) => {
+    const target = moveToLesson || 'Allgemein';
+    await deleteLesson(lessonName, deleteVocabs, target);
+    if (deleteVocabs) {
+      setVocabularies((prev) => prev.filter((v) => v.lesson !== lessonName));
+    } else {
+      setVocabularies((prev) =>
+        prev.map((v) => (v.lesson === lessonName ? { ...v, lesson: target } : v))
+      );
+    }
+  };
+
+  // Move vocabularies to another lesson
+  const handleMoveVocabs = async (vocabIds: string[], targetLesson: string) => {
+    await moveVocabulariesToLesson(vocabIds, targetLesson);
+    const idSet = new Set(vocabIds);
+    setVocabularies((prev) =>
+      prev.map((v) => (idSet.has(v.id) ? { ...v, lesson: targetLesson } : v))
+    );
+  };
+
   // Update existing vocabulary handler
   const handleUpdateVocab = async (
     id: string,
     updatedData: Partial<Omit<Vocabulary, 'id' | 'createdAt'>>
   ) => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) return;
+    const userId = user.uid;
     const updated = await updateVocabulary(id, updatedData, userId);
     setVocabularies((prev) =>
       prev.map((v) => (v.id === id ? { ...v, ...updated } : v))
@@ -265,7 +321,8 @@ function AppContent() {
 
   // Delete vocabulary handler
   const handleDeleteVocab = async (id: string) => {
-    const userId = user?.uid || 'local_guest';
+    if (!user) return;
+    const userId = user.uid;
     await deleteVocabulary(id, userId);
     setVocabularies((prev) => prev.filter((v) => v.id !== id));
     setProgressMap((prev) => {
@@ -290,7 +347,7 @@ function AppContent() {
     });
   };
 
-  // If active study session is running, render full-screen phase6 query interface
+  // If active study session is running, render full-screen study interface
   if (activeSession) {
     return (
       <StudySession
@@ -308,6 +365,32 @@ function AppContent() {
     );
   }
 
+  // Lockout for guests: unauthenticated visitors cannot see cards or study
+  if (!authLoading && !user) {
+    return (
+      <div className="min-h-screen bg-[#121214] text-white flex flex-col justify-center items-center p-4 selection:bg-[#FF7A00] selection:text-black">
+        <div className="w-full max-w-sm text-center mb-4">
+          <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] flex items-center justify-center text-3xl shadow-xl mb-3">
+            🇹🇭
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-white">
+            Thai Hasis Vokabeltrainer
+          </h1>
+          <p className="text-xs text-[#8E8E93] mt-1.5 leading-relaxed">
+            6-Phasen-Lernsystem & Community-Wortschatz.<br />
+            Zugang nur für registrierte Mitglieder.
+          </p>
+        </div>
+
+        <AuthModal
+          isOpen={true}
+          onClose={() => {}}
+          isClosable={false}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#121214] text-white flex flex-col justify-between selection:bg-[#FF7A00] selection:text-black">
       {/* Main Content Area */}
@@ -315,7 +398,7 @@ function AppContent() {
         {loadingData ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
             <div className="w-10 h-10 border-3 border-[#FF7A00] border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-[#8E8E93] font-medium">Lade phase6 Thai...</p>
+            <p className="text-xs text-[#8E8E93] font-medium">Lade Thai Hasis Vokabeltrainer...</p>
           </div>
         ) : (
           <>
@@ -344,6 +427,9 @@ function AppContent() {
                 onNavigateCreate={() => setActiveTab('create')}
                 onUpdateVocab={handleUpdateVocab}
                 onDeleteVocab={handleDeleteVocab}
+                onRenameLesson={handleRenameLesson}
+                onDeleteLesson={handleDeleteLesson}
+                onMoveVocabs={handleMoveVocabs}
                 existingLessons={existingLessons}
               />
             )}

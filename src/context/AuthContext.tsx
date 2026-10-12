@@ -33,37 +33,49 @@ interface AuthContextType {
   isGuest: boolean;
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
-  registerWithEmail: (email: string, pass: string, displayName?: string) => Promise<void>;
-  loginAsGuest: () => Promise<void>;
+  registerWithEmail: (email: string, pass: string, registrationCode: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   authError: string | null;
   clearAuthError: () => void;
+  verifyRegistrationCode: (code: string) => Promise<boolean>;
 }
 
-const LOCAL_ACCOUNTS_KEY = 'phase6_accounts_v1';
-const ACTIVE_SESSION_KEY = 'phase6_active_user_v1';
-const GUEST_USER: AuthUser = {
-  uid: 'local_guest',
-  email: null,
-  displayName: 'Gast-Lernender',
-  isAnonymous: true,
-};
+const LOCAL_ACCOUNTS_KEY = 'thai_hasis_accounts_v1';
+const LEGACY_ACCOUNTS_KEY = 'phase6_accounts_v1';
+const ACTIVE_SESSION_KEY = 'thai_hasis_active_user_v1';
+const LEGACY_SESSION_KEY = 'phase6_active_user_v1';
+
+// SHA-256 hash of the required registration code (stored only as hash):
+const REGISTRATION_CODE_HASH = '37c9951b34c6841108e527f77a53325ec68e8ec98a07bb6a68e73c1a1436f68d';
+
+export async function checkRegistrationCode(code: string): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(code.trim());
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return hashHex.toLowerCase() === REGISTRATION_CODE_HASH;
+  } catch {
+    return false;
+  }
+}
 
 async function hashPassword(password: string): Promise<string> {
   try {
     const encoder = new TextEncoder();
-    const data = encoder.encode(`phase6_thai_salt_2026:${password}`);
+    const data = encoder.encode(`thai_hasis_salt_2026:${password}`);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch {
-    return btoa(`phase6_${password}`);
+    return btoa(`thai_hasis_${password}`);
   }
 }
 
 function getStoredAccounts(): Record<string, StoredAccount> {
   try {
-    const data = localStorage.getItem(LOCAL_ACCOUNTS_KEY);
+    const data = localStorage.getItem(LOCAL_ACCOUNTS_KEY) || localStorage.getItem(LEGACY_ACCOUNTS_KEY);
     return data ? JSON.parse(data) : {};
   } catch {
     return {};
@@ -78,41 +90,20 @@ function saveStoredAccounts(accounts: Record<string, StoredAccount>) {
   }
 }
 
-function migrateGuestProgress(newUserId: string) {
-  try {
-    const guestKey = 'phase6_thai_progress_v1_local_guest';
-    const targetKey = `phase6_thai_progress_v1_${newUserId}`;
-    const guestData = localStorage.getItem(guestKey);
-    const existingTargetData = localStorage.getItem(targetKey);
-
-    if (guestData && (!existingTargetData || existingTargetData === '{}')) {
-      const parsed = JSON.parse(guestData);
-      const migrated: Record<string, any> = {};
-      for (const [vocabId, prog] of Object.entries(parsed)) {
-        migrated[vocabId] = {
-          ...(prog as any),
-          id: `${newUserId}_${vocabId}`,
-          userId: newUserId,
-        };
-      }
-      localStorage.setItem(targetKey, JSON.stringify(migrated));
-    }
-  } catch (err) {
-    console.warn('Could not migrate guest progress:', err);
-  }
-}
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
-      const stored = localStorage.getItem(ACTIVE_SESSION_KEY);
+      const stored = localStorage.getItem(ACTIVE_SESSION_KEY) || localStorage.getItem(LEGACY_SESSION_KEY);
       if (stored) {
-        return JSON.parse(stored) as AuthUser;
+        const parsed = JSON.parse(stored) as AuthUser;
+        if (parsed && !parsed.isAnonymous) {
+          return parsed;
+        }
       }
     } catch {}
-    return GUEST_USER;
+    return null; // Guest by default has no access until registered / logged in
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -123,12 +114,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen to Firebase auth changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
+      if (currentUser && !currentUser.isAnonymous) {
         const authUser: AuthUser = {
           uid: currentUser.uid,
           email: currentUser.email,
           displayName: currentUser.displayName,
-          isAnonymous: currentUser.isAnonymous,
+          isAnonymous: false,
           photoURL: currentUser.photoURL,
         };
         setUser(authUser);
@@ -139,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // If we don't have a Firebase user, check if a registered local user was signed in
         try {
-          const stored = localStorage.getItem(ACTIVE_SESSION_KEY);
+          const stored = localStorage.getItem(ACTIVE_SESSION_KEY) || localStorage.getItem(LEGACY_SESSION_KEY);
           if (stored) {
             const parsed = JSON.parse(stored) as AuthUser;
             if (parsed && !parsed.isAnonymous) {
@@ -150,8 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch {}
 
-        // Fallback to guest user
-        setUser(GUEST_USER);
+        // Not authenticated -> no access for guests
+        setUser(null);
         setLoading(false);
       }
     });
@@ -159,11 +150,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const registerWithEmail = async (email: string, pass: string, displayName?: string) => {
+  const registerWithEmail = async (
+    email: string,
+    pass: string,
+    registrationCode: string,
+    displayName?: string
+  ) => {
     setAuthError(null);
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = pass.trim();
     const finalDisplayName = displayName?.trim() || cleanEmail.split('@')[0];
+
+    // Verify registration passkey against hash
+    const isCodeValid = await checkRegistrationCode(registrationCode);
+    if (!isCodeValid) {
+      const msg = 'Ungültiges Registrierungs-Passwort. Eine Registrierung ist nur mit dem korrekten Zugangs-Passwort möglich.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
 
     if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       const msg = 'Bitte eine gültige E-Mail-Adresse eingeben.';
@@ -192,10 +196,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(authUser);
       localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
-      migrateGuestProgress(authUser.uid);
       firebaseSuccess = true;
     } catch (fbErr: any) {
-      console.info('Firebase registration unavailable or disabled, registering in local account registry:', fbErr?.code || fbErr?.message);
+      console.info('Firebase registration falling back to local registry:', fbErr?.code || fbErr?.message);
     }
 
     if (!firebaseSuccess) {
@@ -231,7 +234,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
       } catch {}
-      migrateGuestProgress(uid);
     }
   };
 
@@ -267,7 +269,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const account = accounts[cleanEmail];
 
       if (!account) {
-        const msg = 'Kein Konto mit dieser E-Mail-Adresse gefunden. Bitte erstelle zuerst ein Konto.';
+        const msg = 'Kein Konto mit dieser E-Mail-Adresse gefunden. Bitte erstelle zuerst ein Konto mit dem Registrierungs-Passwort.';
         setAuthError(msg);
         throw new Error(msg);
       }
@@ -290,7 +292,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
       } catch {}
-      migrateGuestProgress(account.uid);
     }
   };
 
@@ -310,7 +311,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(authUser));
       } catch {}
-      migrateGuestProgress(res.user.uid);
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user') {
         return;
@@ -322,27 +322,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const loginAsGuest = async () => {
-    setAuthError(null);
-    try {
-      await signInAnonymously(auth);
-    } catch {
-      // Offline / anonymous fallback
-      setUser(GUEST_USER);
-      try {
-        localStorage.removeItem(ACTIVE_SESSION_KEY);
-      } catch {}
-    }
-  };
-
   const logout = async () => {
     try {
       await signOut(auth);
     } catch {}
     try {
       localStorage.removeItem(ACTIVE_SESSION_KEY);
+      localStorage.removeItem(LEGACY_SESSION_KEY);
     } catch {}
-    setUser(GUEST_USER);
+    setUser(null);
   };
 
   const clearAuthError = () => setAuthError(null);
@@ -352,14 +340,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         loading,
-        isGuest: !user || Boolean(user.isAnonymous) || user.uid === 'local_guest',
+        isGuest: !user,
         loginWithGoogle,
         loginWithEmail,
         registerWithEmail,
-        loginAsGuest,
         logout,
         authError,
         clearAuthError,
+        verifyRegistrationCode: checkRegistrationCode,
       }}
     >
       {children}

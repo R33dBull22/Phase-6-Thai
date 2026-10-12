@@ -50,7 +50,7 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
               <TrendingUp className="w-5 h-5 text-[#FF7A00]" />
               Lernstatistik & Phasen
             </h2>
-            <p className="text-xs text-[#8E8E93] mt-0.5">phase6 6-Stufen-Leitner-System</p>
+            <p className="text-xs text-[#8E8E93] mt-0.5">6-Stufen-Leitner-System</p>
           </div>
           <button
             onClick={onClose}
@@ -118,7 +118,7 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
         <div className="bg-[#242426]/70 rounded-2xl p-3.5 border border-[#323236] text-xs text-[#A1A1AA] space-y-1.5 mb-5">
           <p className="font-semibold text-white flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-[#FF7A00]" />
-            Wie funktioniert das phase6 System?
+            Wie funktioniert das 6-Phasen-Lernsystem?
           </p>
           <p>
             Jede gewusste Vokabel wandert eine Phase weiter und wird in größeren Zeitabständen abgefragt (1 &rarr; 3 &rarr; 7 &rarr; 15 &rarr; 30 &rarr; 90 Tage).

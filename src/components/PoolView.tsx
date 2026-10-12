@@ -10,6 +10,11 @@ import {
   BookOpen,
   Filter,
   Pencil,
+  Trash2,
+  FolderInput,
+  FolderEdit,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
 import { speakThai } from '../utils/thaiAudio';
@@ -24,6 +29,9 @@ interface PoolViewProps {
   onNavigateCreate: () => void;
   onUpdateVocab?: (id: string, updatedData: Partial<Omit<Vocabulary, 'id' | 'createdAt'>>) => Promise<void>;
   onDeleteVocab?: (id: string) => Promise<void>;
+  onRenameLesson?: (oldName: string, newName: string) => Promise<void>;
+  onDeleteLesson?: (lessonName: string, deleteVocabs: boolean, moveToLesson?: string) => Promise<void>;
+  onMoveVocabs?: (vocabIds: string[], targetLesson: string) => Promise<void>;
   existingLessons?: string[];
 }
 
@@ -35,6 +43,9 @@ export const PoolView: React.FC<PoolViewProps> = ({
   onNavigateCreate,
   onUpdateVocab,
   onDeleteVocab,
+  onRenameLesson,
+  onDeleteLesson,
+  onMoveVocabs,
   existingLessons = [],
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,6 +55,22 @@ export const PoolView: React.FC<PoolViewProps> = ({
   const [isAddingToDeck, setIsAddingToDeck] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [editingVocab, setEditingVocab] = useState<Vocabulary | null>(null);
+
+  // Lesson rename state
+  const [renamingLesson, setRenamingLesson] = useState<string | null>(null);
+  const [newLessonNameInput, setNewLessonNameInput] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  // Lesson delete state
+  const [deletingLesson, setDeletingLesson] = useState<string | null>(null);
+  const [deleteOption, setDeleteOption] = useState<'delete_cards' | 'move_to_general'>('delete_cards');
+  const [isDeletingLesson, setIsDeletingLesson] = useState(false);
+
+  // Move vocabularies state
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [targetMoveLesson, setTargetMoveLesson] = useState('');
+  const [customTargetMoveLesson, setCustomTargetMoveLesson] = useState('');
+  const [isMovingVocabs, setIsMovingVocabs] = useState(false);
 
   // Group by lessons
   const groupedByLesson = useMemo(() => {
@@ -72,6 +99,14 @@ export const PoolView: React.FC<PoolViewProps> = ({
     });
     return map;
   }, [vocabularies, searchQuery, filterMode, progressMap]);
+
+  const allLessonsList = useMemo(() => {
+    const set = new Set<string>();
+    vocabularies.forEach((v) => {
+      if (v.lesson) set.add(v.lesson);
+    });
+    return Array.from(set);
+  }, [vocabularies]);
 
   const toggleSelectCard = (id: string) => {
     setSelectedIds((prev) => {
@@ -135,11 +170,81 @@ export const PoolView: React.FC<PoolViewProps> = ({
     }
   };
 
+  // Handle Rename Lesson
+  const handleConfirmRenameLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renamingLesson || !newLessonNameInput.trim()) return;
+    if (!onRenameLesson) return;
+
+    setIsRenaming(true);
+    try {
+      await onRenameLesson(renamingLesson, newLessonNameInput.trim());
+      setToastMessage(`✓ Lektion „${renamingLesson}“ umbenannt in „${newLessonNameInput.trim()}“!`);
+      setRenamingLesson(null);
+      setNewLessonNameInput('');
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      setToastMessage(`Fehler beim Umbenennen: ${err.message || 'Unbekannt'}`);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  // Handle Delete Lesson
+  const handleConfirmDeleteLesson = async () => {
+    if (!deletingLesson) return;
+    if (!onDeleteLesson) return;
+
+    setIsDeletingLesson(true);
+    try {
+      await onDeleteLesson(
+        deletingLesson,
+        deleteOption === 'delete_cards',
+        deleteOption === 'move_to_general' ? 'Allgemein' : undefined
+      );
+      setToastMessage(`✓ Lektion „${deletingLesson}“ erfolgreich gelöscht!`);
+      setDeletingLesson(null);
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      setToastMessage(`Fehler beim Löschen: ${err.message || 'Unbekannt'}`);
+    } finally {
+      setIsDeletingLesson(false);
+    }
+  };
+
+  // Handle Move Vocabularies
+  const handleConfirmMoveVocabs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalTarget =
+      targetMoveLesson === '__new__' ? customTargetMoveLesson.trim() : targetMoveLesson.trim();
+
+    if (!finalTarget) return;
+    if (!onMoveVocabs) return;
+
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+
+    setIsMovingVocabs(true);
+    try {
+      await onMoveVocabs(ids, finalTarget);
+      setToastMessage(`✓ ${ids.length} Vokabeln nach „${finalTarget}“ verschoben!`);
+      setSelectedIds(new Set());
+      setMoveModalOpen(false);
+      setTargetMoveLesson('');
+      setCustomTargetMoveLesson('');
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      setToastMessage(`Fehler beim Verschieben: ${err.message || 'Unbekannt'}`);
+    } finally {
+      setIsMovingVocabs(false);
+    }
+  };
+
   const selectedCount = selectedIds.size;
   const selectedNotInDeck = Array.from(selectedIds).filter((id) => !progressMap[id]).length;
 
   return (
-    <div className="max-w-md mx-auto px-4 pt-3 pb-36 text-white">
+    <div className="max-w-md mx-auto px-4 pt-3 pb-40 text-white">
       {/* Top Header matching IMG_6341.png */}
       <div className="flex items-center justify-between py-2 mb-3">
         <h1 className="text-xl font-bold tracking-tight text-white">
@@ -159,7 +264,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
           </div>
           <button
             onClick={() => setToastMessage(null)}
-            className="text-[#8E8E93] hover:text-white text-xs px-1"
+            className="text-[#8E8E93] hover:text-white text-xs px-1 cursor-pointer"
           >
             ✕
           </button>
@@ -181,7 +286,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
         {searchQuery && (
           <button
             onClick={() => setSearchQuery('')}
-            className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-xs text-[#8E8E93] hover:text-white"
+            className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-xs text-[#8E8E93] hover:text-white cursor-pointer"
           >
             ✕
           </button>
@@ -192,7 +297,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
       <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1 text-xs">
         <button
           onClick={() => setFilterMode('all')}
-          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors ${
+          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
             filterMode === 'all'
               ? 'bg-[#FF7A00] text-black font-semibold'
               : 'bg-[#242426] text-[#8E8E93] border border-[#323236]'
@@ -202,7 +307,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
         </button>
         <button
           onClick={() => setFilterMode('in_deck')}
-          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors ${
+          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
             filterMode === 'in_deck'
               ? 'bg-[#FF7A00] text-black font-semibold'
               : 'bg-[#242426] text-[#8E8E93] border border-[#323236]'
@@ -212,7 +317,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
         </button>
         <button
           onClick={() => setFilterMode('not_in_deck')}
-          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors ${
+          className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
             filterMode === 'not_in_deck'
               ? 'bg-[#FF7A00] text-black font-semibold'
               : 'bg-[#242426] text-[#8E8E93] border border-[#323236]'
@@ -229,11 +334,11 @@ export const PoolView: React.FC<PoolViewProps> = ({
         </div>
         <div>
           <span className="text-sm font-bold text-white tracking-tight">Thai Grund- & Aufbauwortschatz</span>
-          <p className="text-[11px] text-[#8E8E93]">Gemeinsamer Community-Pool & eigene Kärtchen</p>
+          <p className="text-[11px] text-[#8E8E93]">Gemeinsamer Wortschatz • Lektionen bearbeiten & verschieben</p>
         </div>
       </div>
 
-      {/* Accordion List matching IMG_6341.png */}
+      {/* Accordion List */}
       <div className="space-y-3">
         {Object.keys(groupedByLesson).length === 0 ? (
           <div className="text-center py-12 bg-[#1C1C1E] rounded-3xl border border-[#2C2C2E] p-6">
@@ -244,7 +349,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
             </p>
             <button
               onClick={onNavigateCreate}
-              className="px-4 py-2 bg-[#FF7A00] text-black rounded-full font-semibold text-xs hover:bg-[#FF881A]"
+              className="px-4 py-2 bg-[#FF7A00] text-black rounded-full font-semibold text-xs hover:bg-[#FF881A] cursor-pointer"
             >
               + Neue Vokabel anlegen
             </button>
@@ -260,14 +365,14 @@ export const PoolView: React.FC<PoolViewProps> = ({
                 key={lesson}
                 className="bg-[#242426] rounded-2xl border border-[#323236] overflow-hidden transition-all"
               >
-                {/* Accordion Header matching IMG_6341.png */}
+                {/* Accordion Header */}
                 <div className="p-3.5 flex items-center justify-between border-b border-[#323236]/60">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     {/* Checkbox for entire lesson */}
                     <button
                       type="button"
                       onClick={() => toggleSelectLesson(items)}
-                      className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                      className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                         allInLessonSelected
                           ? 'bg-[#FF7A00] border-[#FF7A00]'
                           : selectedInLesson > 0
@@ -284,21 +389,59 @@ export const PoolView: React.FC<PoolViewProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleExpand(lesson)}
-                      className="flex items-center justify-between flex-1 text-left min-w-0 pr-1"
+                      className="flex items-center justify-between flex-1 text-left min-w-0 pr-1 cursor-pointer"
                     >
                       <span className="text-sm font-semibold text-white truncate">
                         {lesson}
                       </span>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="text-xs font-semibold text-[#FF7A00]">
-                          {selectedInLesson} / {items.length}
-                        </span>
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-[#8E8E93]" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-[#8E8E93]" />
-                        )}
-                      </div>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    {/* Rename Lesson button */}
+                    {onRenameLesson && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenamingLesson(lesson);
+                          setNewLessonNameInput(lesson);
+                        }}
+                        className="p-1 rounded-md text-[#8E8E93] hover:text-[#FF7A00] hover:bg-[#1C1C1E] transition-colors cursor-pointer"
+                        title="Lektion umbenennen"
+                      >
+                        <FolderEdit className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Delete Lesson button */}
+                    {onDeleteLesson && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeletingLesson(lesson);
+                          setDeleteOption('delete_cards');
+                        }}
+                        className="p-1 rounded-md text-[#8E8E93] hover:text-rose-400 hover:bg-[#1C1C1E] transition-colors cursor-pointer"
+                        title="Lektion löschen"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    <span className="text-xs font-semibold text-[#FF7A00] px-1">
+                      {selectedInLesson} / {items.length}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(lesson)}
+                      className="p-1 text-[#8E8E93] hover:text-white cursor-pointer"
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4 text-[#8E8E93]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#8E8E93]" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -354,8 +497,8 @@ export const PoolView: React.FC<PoolViewProps> = ({
                             <button
                               type="button"
                               onClick={() => setEditingVocab(vocab)}
-                              className="p-1 rounded-full text-[#71717A] hover:text-[#FF7A00] transition-colors"
-                              title="Vokabel bearbeiten"
+                              className="p-1 rounded-full text-[#71717A] hover:text-[#FF7A00] transition-colors cursor-pointer"
+                              title="Vokabel bearbeiten / Lektion ändern"
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -364,7 +507,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
                             <button
                               type="button"
                               onClick={() => speakThai(vocab.thai)}
-                              className="p-1 rounded-full text-[#71717A] hover:text-white transition-colors"
+                              className="p-1 rounded-full text-[#71717A] hover:text-white transition-colors cursor-pointer"
                               title="Aussprache anhören"
                             >
                               <Volume2 className="w-3.5 h-3.5" />
@@ -396,6 +539,233 @@ export const PoolView: React.FC<PoolViewProps> = ({
         )}
       </div>
 
+      {/* Rename Lesson Modal */}
+      {renamingLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#1C1C1E] border border-[#2C2C2E] rounded-3xl w-full max-w-sm p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-4">
+              <div className="flex items-center gap-2">
+                <FolderEdit className="w-5 h-5 text-[#FF7A00]" />
+                <h3 className="text-base font-bold text-white">Lektion umbenennen</h3>
+              </div>
+              <button
+                onClick={() => setRenamingLesson(null)}
+                className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmRenameLesson} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-[#8E8E93] mb-1">
+                  Neuer Name für „{renamingLesson}“
+                </label>
+                <input
+                  type="text"
+                  value={newLessonNameInput}
+                  onChange={(e) => setNewLessonNameInput(e.target.value)}
+                  placeholder="z.B. Familie & Freunde"
+                  required
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 bg-[#242426] border border-[#3A3A3D] rounded-xl text-sm text-white focus:outline-none focus:border-[#FF7A00]"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRenamingLesson(null)}
+                  className="flex-1 py-2.5 rounded-full bg-[#2C2C2E] text-white text-xs font-semibold hover:bg-[#3A3A3D] cursor-pointer"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRenaming || !newLessonNameInput.trim()}
+                  className="flex-1 py-2.5 rounded-full bg-[#FF7A00] text-black text-xs font-semibold hover:bg-[#FF881A] cursor-pointer disabled:opacity-50"
+                >
+                  {isRenaming ? 'Wird gespeichert...' : 'Umbenennen'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Lesson Modal */}
+      {deletingLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#1C1C1E] border border-rose-500/30 rounded-3xl w-full max-w-sm p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-4">
+              <div className="flex items-center gap-2 text-rose-400">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <h3 className="text-base font-bold text-white">Lektion löschen</h3>
+              </div>
+              <button
+                onClick={() => setDeletingLesson(null)}
+                className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#D1D1D6] mb-4 leading-relaxed">
+              Möchtest du die Lektion <span className="text-white font-bold">„{deletingLesson}“</span> wirklich entfernen?
+            </p>
+
+            <div className="space-y-2 mb-5 text-xs">
+              <label
+                onClick={() => setDeleteOption('delete_cards')}
+                className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                  deleteOption === 'delete_cards'
+                    ? 'border-rose-500/60 bg-rose-500/10 text-white'
+                    : 'border-[#323236] bg-[#242426] text-[#8E8E93]'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="delOption"
+                  checked={deleteOption === 'delete_cards'}
+                  onChange={() => setDeleteOption('delete_cards')}
+                  className="mt-0.5 text-rose-500"
+                />
+                <div>
+                  <p className="font-semibold text-rose-300">Alle Vokabeln dieser Lektion löschen</p>
+                  <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+                    Die Karten werden komplett aus der App entfernt.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                onClick={() => setDeleteOption('move_to_general')}
+                className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                  deleteOption === 'move_to_general'
+                    ? 'border-[#FF7A00]/60 bg-[#FF7A00]/10 text-white'
+                    : 'border-[#323236] bg-[#242426] text-[#8E8E93]'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="delOption"
+                  checked={deleteOption === 'move_to_general'}
+                  onChange={() => setDeleteOption('move_to_general')}
+                  className="mt-0.5 text-[#FF7A00]"
+                />
+                <div>
+                  <p className="font-semibold text-[#FF7A00]">Vokabeln in „Allgemein“ verschieben</p>
+                  <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+                    Nur die Lektion wird gelöscht, die Vokabeln bleiben erhalten.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingLesson(null)}
+                className="flex-1 py-2.5 rounded-full bg-[#2C2C2E] text-white text-xs font-semibold hover:bg-[#3A3A3D] cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteLesson}
+                disabled={isDeletingLesson}
+                className="flex-1 py-2.5 rounded-full bg-rose-600 text-white text-xs font-semibold hover:bg-rose-500 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingLesson ? 'Löschen...' : 'Löschen bestätigen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Selected Vocabs Modal */}
+      {moveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#1C1C1E] border border-[#2C2C2E] rounded-3xl w-full max-w-sm p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-4">
+              <div className="flex items-center gap-2">
+                <FolderInput className="w-5 h-5 text-[#FF7A00]" />
+                <h3 className="text-base font-bold text-white">Vokabeln verschieben</h3>
+              </div>
+              <button
+                onClick={() => setMoveModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmMoveVocabs} className="space-y-4">
+              <p className="text-xs text-[#8E8E93]">
+                Verschiebe die <span className="text-[#FF7A00] font-semibold">{selectedIds.size}</span> ausgewählten Vokabeln in eine Lektion:
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8E8E93] mb-1">
+                  Ziel-Lektion auswählen
+                </label>
+                <select
+                  value={targetMoveLesson}
+                  onChange={(e) => setTargetMoveLesson(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#242426] border border-[#3A3A3D] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                >
+                  <option value="">-- Lektion wählen --</option>
+                  {allLessonsList.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                  <option value="__new__">+ Neue Lektion anlegen...</option>
+                </select>
+              </div>
+
+              {targetMoveLesson === '__new__' && (
+                <div>
+                  <label className="block text-xs font-medium text-[#8E8E93] mb-1">
+                    Name der neuen Lektion
+                  </label>
+                  <input
+                    type="text"
+                    value={customTargetMoveLesson}
+                    onChange={(e) => setCustomTargetMoveLesson(e.target.value)}
+                    placeholder="z.B. Restaurant & Bestellen"
+                    required
+                    autoFocus
+                    className="w-full px-3.5 py-2.5 bg-[#242426] border border-[#3A3A3D] rounded-xl text-xs text-white focus:outline-none focus:border-[#FF7A00]"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setMoveModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-full bg-[#2C2C2E] text-white text-xs font-semibold hover:bg-[#3A3A3D] cursor-pointer"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isMovingVocabs ||
+                    !targetMoveLesson ||
+                    (targetMoveLesson === '__new__' && !customTargetMoveLesson.trim())
+                  }
+                  className="flex-1 py-2.5 rounded-full bg-[#FF7A00] text-black text-xs font-semibold hover:bg-[#FF881A] cursor-pointer disabled:opacity-50"
+                >
+                  {isMovingVocabs ? 'Verschieben...' : 'Verschieben'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Edit Vocab Modal */}
       {editingVocab && (
         <EditVocabModal
@@ -426,24 +796,39 @@ export const PoolView: React.FC<PoolViewProps> = ({
         />
       )}
 
-      {/* Sticky Bottom Actions matching IMG_6341.png */}
+      {/* Sticky Bottom Actions */}
       <div className="fixed bottom-16 left-0 right-0 z-30 bg-[#121214]/95 backdrop-blur-md border-t border-[#2C2C2E] p-3 px-4">
         <div className="max-w-md mx-auto space-y-2">
           {/* Outlined button: + Vokabeln eingeben */}
           <button
             onClick={onNavigateCreate}
-            className="w-full py-3.5 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-white font-semibold text-sm hover:bg-[#242426] transition-colors flex items-center justify-center gap-2 active:scale-[0.99]"
+            className="w-full py-3 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-white font-semibold text-xs hover:bg-[#242426] transition-colors flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer"
           >
             <Plus className="w-4 h-4 text-[#FF7A00]" />
             <span>+ Vokabeln eingeben</span>
           </button>
+
+          {/* If cards are selected, provide Move button */}
+          {selectedCount > 0 && onMoveVocabs && (
+            <button
+              onClick={() => {
+                setTargetMoveLesson('');
+                setCustomTargetMoveLesson('');
+                setMoveModalOpen(true);
+              }}
+              className="w-full py-3 rounded-full bg-[#242426] border border-[#FF7A00]/50 text-[#FF7A00] font-semibold text-xs hover:bg-[#2C2C2E] transition-colors active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer shadow"
+            >
+              <FolderInput className="w-4 h-4" />
+              <span>{selectedCount} Vokabeln in andere Lektion verschieben</span>
+            </button>
+          )}
 
           {/* If cards not in deck are selected, show add option, or directly study */}
           {selectedNotInDeck > 0 ? (
             <button
               onClick={handleAddSelectedToDeck}
               disabled={isAddingToDeck}
-              className="w-full py-3.5 rounded-full bg-[#FF7A00] text-black font-semibold text-sm hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-full bg-[#FF7A00] text-black font-semibold text-sm hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
             >
               <FolderPlus className="w-4 h-4 text-black" />
               <span>{selectedNotInDeck} zur Abfrage hinzufügen</span>
@@ -452,7 +837,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
             <button
               onClick={handleStartStudySelected}
               disabled={selectedCount === 0}
-              className="w-full py-3.5 rounded-full bg-[#FF7A00] text-black font-semibold text-sm hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-full bg-[#FF7A00] text-black font-semibold text-sm hover:bg-[#FF881A] transition-colors shadow-lg active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Ausgewählte abfragen ({selectedCount})</span>
             </button>

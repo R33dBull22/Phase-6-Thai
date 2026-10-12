@@ -1,10 +1,11 @@
 import { Vocabulary, UserProgress } from '../types/vocab';
 
 export interface ExportData {
-  vocabularies: Vocabulary[];
+  vocabularies: (Vocabulary & { phase?: number })[];
   progress?: Record<string, UserProgress>;
   exportedAt: string;
   formatVersion: string;
+  appName: string;
 }
 
 /**
@@ -28,7 +29,7 @@ function downloadFile(content: string, filename: string, mimeType: string) {
 export function exportToCSV(
   vocabularies: Vocabulary[],
   userProgress?: Record<string, UserProgress>,
-  filenamePrefix = 'phase6_thai_vokabeln'
+  filenamePrefix = 'thai_hasis_vokabeln'
 ) {
   const headers = [
     'Deutsch',
@@ -37,7 +38,7 @@ export function exportToCSV(
     'Lektion',
     'Beispielsatz Thai',
     'Beispielsatz Deutsch',
-    'Aktuelle Phase (1-6)',
+    'Phase (1-6)',
     'Nächste Wiederholung',
   ];
 
@@ -49,6 +50,7 @@ export function exportToCSV(
 
   const rows = vocabularies.map((v) => {
     const prog = userProgress ? userProgress[v.id] : undefined;
+    const currentPhase = prog ? prog.phase : 1;
     return [
       escapeCSV(v.german),
       escapeCSV(v.thai),
@@ -56,7 +58,7 @@ export function exportToCSV(
       escapeCSV(v.lesson),
       escapeCSV(v.exampleThai),
       escapeCSV(v.exampleGerman),
-      escapeCSV(prog ? String(prog.phase) : 'Nicht im Deck'),
+      escapeCSV(String(currentPhase)),
       escapeCSV(prog?.nextReviewDate || ''),
     ].join(';');
   });
@@ -73,18 +75,43 @@ export function exportToCSV(
 export function exportToJSON(
   vocabularies: Vocabulary[],
   userProgress?: Record<string, UserProgress>,
-  filenamePrefix = 'phase6_thai_backup'
+  filenamePrefix = 'thai_hasis_backup'
 ) {
   const exportPayload: ExportData = {
-    vocabularies,
+    appName: 'Thai Hasis Vokabeltrainer',
+    vocabularies: vocabularies.map((v) => {
+      const prog = userProgress ? userProgress[v.id] : undefined;
+      return {
+        ...v,
+        phase: prog ? prog.phase : 1,
+      };
+    }),
     progress: userProgress,
     exportedAt: new Date().toISOString(),
-    formatVersion: '1.0',
+    formatVersion: '2.0',
   };
 
   const jsonContent = JSON.stringify(exportPayload, null, 2);
   const dateStr = new Date().toISOString().split('T')[0];
   downloadFile(jsonContent, `${filenamePrefix}_${dateStr}.json`, 'application/json;charset=utf-8;');
+}
+
+/**
+ * Downloads a sample CSV template for users to easily fill in
+ */
+export function downloadSampleCSVTemplate() {
+  const sampleContent =
+    '\uFEFF' +
+    [
+      'Deutsch;Thai;Romanisierung;Lektion;Beispielsatz Thai;Beispielsatz Deutsch;Phase (1-6)',
+      'Hallo;สวัสดี;sa-wat-dee;Begrüßung;สวัสดีครับ;Hallo (höflich);1',
+      'Danke;ขอบคุณ;khop-khun;Begrüßung;ขอบคุณมาก;Vielen Dank;2',
+      'Wie geht es dir?;สบายดีไหม;sa-baai-dee-mai;Begrüßung;สบายดีครับ;Mir geht es gut;1',
+      'Lecker;อร่อย;a-roi;Essen & Trinken;อาหารนี้อร่อยมาก;Dieses Essen ist sehr lecker;3',
+      'Wasser;น้ำ;nam;Essen & Trinken;ขอน้ำเปล่าแก้วหนึ่ง;Bitte ein Glas stilles Wasser;1',
+    ].join('\r\n');
+
+  downloadFile(sampleContent, 'thai_hasis_muster_vorlage.csv', 'text/csv;charset=utf-8;');
 }
 
 export interface ParsedCSVRow {
@@ -94,12 +121,13 @@ export interface ParsedCSVRow {
   lesson: string;
   exampleThai?: string;
   exampleGerman?: string;
+  phase?: number;
   isValid: boolean;
   error?: string;
 }
 
 /**
- * Parses user uploaded CSV text with flexible delimiters (; or , or \t)
+ * Parses user uploaded CSV text with flexible delimiters (; or , or \t) and Phase detection
  */
 export function parseCSVContent(text: string): ParsedCSVRow[] {
   // Strip BOM if present
@@ -154,6 +182,14 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
     firstCols.some((c) => c.includes('thai')) ||
     firstCols.some((c) => c.includes('lektion') || c.includes('lesson'));
 
+  // Look for phase column in header
+  let phaseColIndex = -1;
+  if (isHeader) {
+    phaseColIndex = firstCols.findIndex(
+      (c) => c.includes('phase') || c.includes('stufe') || c.includes('leitner')
+    );
+  }
+
   const startIndex = isHeader ? 1 : 0;
   const result: ParsedCSVRow[] = [];
 
@@ -161,13 +197,25 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
     const cols = parseLine(lines[i]);
     if (cols.length === 0 || cols.every((c) => !c)) continue;
 
-    // Expected order: Deutsch, Thai, Romanisierung, Lektion, [exThai], [exGerman]
+    // Expected order: Deutsch, Thai, Romanisierung, Lektion, [exThai], [exGerman], [Phase]
     const german = cols[0] || '';
     const thai = cols[1] || '';
     const romanization = cols[2] || '';
     const lesson = cols[3] || 'Importierte Vokabeln';
     const exampleThai = cols[4] || '';
     const exampleGerman = cols[5] || '';
+
+    // Check for phase in identified header column, column 6, or 5-column short format
+    let parsedPhase: number | undefined;
+    if (phaseColIndex !== -1 && cols[phaseColIndex]) {
+      const digitMatch = cols[phaseColIndex].match(/[1-6]/);
+      if (digitMatch) parsedPhase = parseInt(digitMatch[0], 10);
+    } else if (cols[6]) {
+      const digitMatch = cols[6].match(/[1-6]/);
+      if (digitMatch) parsedPhase = parseInt(digitMatch[0], 10);
+    } else if (cols.length === 5 && cols[4] && /^[1-6]$/.test(cols[4].trim())) {
+      parsedPhase = parseInt(cols[4].trim(), 10);
+    }
 
     const isValid = Boolean(german.trim() && thai.trim());
     result.push({
@@ -177,10 +225,54 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
       lesson: lesson.trim() || 'Importierte Vokabeln',
       exampleThai,
       exampleGerman,
+      phase: parsedPhase || 1,
       isValid,
       error: !isValid ? 'Deutsch und Thai-Feld dürfen nicht leer sein' : undefined,
     });
   }
 
   return result;
+}
+
+/**
+ * Parses user uploaded JSON backup content with full Phase support
+ */
+export function parseJSONContent(text: string): ParsedCSVRow[] {
+  try {
+    const data = JSON.parse(text);
+    const vocabList: any[] = Array.isArray(data)
+      ? data
+      : Array.isArray(data.vocabularies)
+      ? data.vocabularies
+      : [];
+    const progressMap = data.progress || {};
+
+    return vocabList.map((item: any) => {
+      const german = item.german || '';
+      const thai = item.thai || '';
+      let phase: number = 1;
+
+      if (typeof item.phase === 'number' && item.phase >= 1 && item.phase <= 6) {
+        phase = item.phase;
+      } else if (item.id && progressMap[item.id]?.phase) {
+        phase = progressMap[item.id].phase;
+      }
+
+      const isValid = Boolean(german.trim() && thai.trim());
+      return {
+        german,
+        thai,
+        romanization: item.romanization || '',
+        lesson: item.lesson || 'Importierte Vokabeln',
+        exampleThai: item.exampleThai || '',
+        exampleGerman: item.exampleGerman || '',
+        phase,
+        isValid,
+        error: !isValid ? 'Deutsch und Thai-Feld dürfen nicht leer sein' : undefined,
+      };
+    });
+  } catch (err) {
+    console.warn('Error parsing JSON backup content:', err);
+    return [];
+  }
 }

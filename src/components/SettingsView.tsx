@@ -15,13 +15,21 @@ import {
   ShieldCheck,
   Database,
   RefreshCw,
+  Copy,
+  Check,
+  HelpCircle,
+  FileText,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
 import { StudyInputMethod, StudyMode, StudyDirection } from './StudySession';
 import {
   exportToCSV,
   exportToJSON,
+  downloadSampleCSVTemplate,
   parseCSVContent,
+  parseJSONContent,
   ParsedCSVRow,
 } from '../services/exportImportService';
 import { useAuth } from '../context/AuthContext';
@@ -29,7 +37,9 @@ import { useAuth } from '../context/AuthContext';
 interface SettingsViewProps {
   vocabularies: Vocabulary[];
   progressMap: Record<string, UserProgress>;
-  onImportVocabs: (newVocabs: Omit<Vocabulary, 'id' | 'createdAt'>[]) => Promise<number>;
+  onImportVocabs: (
+    newVocabs: (Omit<Vocabulary, 'id' | 'createdAt'> & { phase?: number })[]
+  ) => Promise<number>;
   defaultHideRomanization: boolean;
   onToggleDefaultHideRomanization: (val: boolean) => void;
   defaultInputMethod: StudyInputMethod;
@@ -64,27 +74,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const { user, isGuest, logout } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // CSV Import State
+  // Import State (CSV or JSON)
   const [parsedRows, setParsedRows] = useState<ParsedCSVRow[] | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showCsvFormatGuide, setShowCsvFormatGuide] = useState(true);
+  const [copiedTemplate, setCopiedTemplate] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const isJson = file.name.toLowerCase().endsWith('.json');
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
-        const rows = parseCSVContent(text);
+        const rows = isJson ? parseJSONContent(text) : parseCSVContent(text);
         setParsedRows(rows);
         setImportStatus(null);
       }
     };
     reader.readAsText(file);
-    // Reset file input so user can re-upload same file if needed
     e.target.value = '';
   };
 
@@ -108,11 +120,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         lesson: r.lesson || 'Importierte Vokabeln',
         exampleThai: r.exampleThai || undefined,
         exampleGerman: r.exampleGerman || undefined,
-        creatorId: user?.uid || 'guest_importer',
+        phase: r.phase && r.phase >= 1 && r.phase <= 6 ? r.phase : 1,
+        creatorId: user?.uid || 'logged_in_user',
       }));
 
       const count = await onImportVocabs(formatted);
-      setImportStatus(`${count} Vokabeln erfolgreich importiert!`);
+      setImportStatus(`✓ ${count} Vokabeln erfolgreich importiert! Die Phasen wurden für dein Profil übernommen.`);
       setParsedRows(null);
     } catch (err: any) {
       setImportStatus(`Fehler beim Import: ${err.message || 'Unbekannt'}`);
@@ -162,19 +175,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <div>
                 <p className="text-sm font-semibold text-white">
-                  {user && !isGuest
-                    ? (user.displayName || user.email || 'Angemeldeter Nutzer')
-                    : 'Gast-Lernender'}
+                  {user
+                    ? (user.displayName || user.email || 'Angemeldeter Lerner')
+                    : 'Nicht angemeldet'}
                 </p>
                 <p className="text-xs text-[#8E8E93]">
-                  {user && !isGuest
-                    ? (user.email ? `${user.email} • Gespeichertes Profil` : 'Persönliches Profil aktiv')
-                    : 'Kein Konto verknüpft (Lerne als Gast)'}
+                  {user
+                    ? (user.email ? `${user.email} • Mitgliedskonto` : 'Persönliches Profil aktiv')
+                    : 'Bitte anmelden'}
                 </p>
               </div>
             </div>
 
-            {user && !isGuest ? (
+            {user ? (
               <button
                 onClick={logout}
                 className="px-3 py-1.5 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-xs text-rose-400 hover:bg-[#2C2C2E] flex items-center gap-1.5 transition-colors"
@@ -259,22 +272,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* CSV Import Section */}
+        {/* CSV & JSON Import Section */}
         <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
           <h2 className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Upload className="w-4 h-4 text-[#FF7A00]" />
-            CSV Vokabeln Importieren
+            CSV & JSON Vokabeln Importieren
           </h2>
           <p className="text-xs text-[#A1A1AA] mb-3">
-            Lade eigene Tabellen hoch. Unterstütztes Format: <br />
-            <code className="text-[#FF7A00] bg-[#1C1C1E] px-1 py-0.5 rounded text-[11px]">
-              Deutsch;Thai;Romanisierung;Lektion
-            </code>
+            Lade CSV-Dateien oder JSON-Backups hoch. <br />
+            <span className="text-[11px] text-[#8E8E93]">
+              Die Phase (1-6) wird beim Import für dein persönliches Profil übernommen. Für andere Lerner starten die Vokabeln in Phase 1.
+            </span>
           </p>
 
           <input
             type="file"
-            accept=".csv,text/csv,text/plain"
+            accept=".csv, .json, text/csv, application/json, text/plain"
             ref={fileInputRef}
             onChange={handleFileUpload}
             className="hidden"
@@ -282,10 +295,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full py-3 px-4 rounded-xl border border-dashed border-[#444448] bg-[#1C1C1E] hover:border-[#FF7A00] hover:bg-[#242426] transition-colors text-xs font-semibold text-white flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 rounded-xl border border-dashed border-[#444448] bg-[#1C1C1E] hover:border-[#FF7A00] hover:bg-[#242426] transition-colors text-xs font-semibold text-white flex items-center justify-center gap-2 cursor-pointer"
           >
             <Upload className="w-4 h-4 text-[#FF7A00]" />
-            <span>CSV-Datei auswählen...</span>
+            <span>CSV- oder JSON-Datei auswählen...</span>
           </button>
 
           {/* Import status toast */}
@@ -296,7 +309,127 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* Preview Table of Parsed CSV */}
+          {/* CSV Format Documentation & Example */}
+          <div className="mt-3.5 bg-[#1C1C1E] rounded-xl border border-[#3A3A3D] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowCsvFormatGuide((prev) => !prev)}
+              className="w-full p-3 flex items-center justify-between text-left hover:bg-[#222225] transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#FF7A00]" />
+                <span className="text-xs font-semibold text-white">
+                  Erwartetes CSV-Format & Spaltenaufbau
+                </span>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-[#8E8E93]">
+                <span>{showCsvFormatGuide ? 'Einklappen' : 'Anzeigen'}</span>
+                {showCsvFormatGuide ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-[#8E8E93]" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-[#8E8E93]" />
+                )}
+              </div>
+            </button>
+
+            {showCsvFormatGuide && (
+              <div className="px-3.5 pb-3.5 pt-1 text-xs border-t border-[#2C2C2E]/80 space-y-3">
+                <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                  Deine CSV-Datei kann mit Excel, Google Sheets, Numbers oder einem Texteditor erstellt werden.
+                  Unterstützte Trennzeichen: <strong className="text-white">Semikolon (;)</strong>, Komma (,) oder Tabulator (UTF-8).
+                </p>
+
+                {/* Spalten-Übersicht */}
+                <div className="space-y-1.5 text-[11px]">
+                  <span className="font-semibold text-[#8E8E93] uppercase tracking-wider text-[10px] block">
+                    Spalten-Reihenfolge (Headerzeile optional):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-[#FF7A00] font-bold">1. Deutsch</span> <span className="text-rose-400 text-[10px]">*Pflicht</span>
+                      <p className="text-[#8E8E93] text-[10px]">Deutsche Übersetzung (z. B. „Hallo“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-[#FF7A00] font-bold">2. Thai</span> <span className="text-rose-400 text-[10px]">*Pflicht</span>
+                      <p className="text-[#8E8E93] text-[10px]">Thai-Schriftzeichen (z. B. „สวัสดี“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-white font-semibold">3. Romanisierung</span>
+                      <p className="text-[#8E8E93] text-[10px]">Lautschrift / Umschrift (z. B. „sa-wat-dee“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-white font-semibold">4. Lektion</span>
+                      <p className="text-[#8E8E93] text-[10px]">Lektionsname (z. B. „Begrüßung“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-[#8E8E93] font-medium">5. Beispielsatz Thai</span>
+                      <p className="text-[#8E8E93] text-[10px]">Optional (z. B. „สวัสดีครับ“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32]">
+                      <span className="text-[#8E8E93] font-medium">6. Beispielsatz Deutsch</span>
+                      <p className="text-[#8E8E93] text-[10px]">Optional (z. B. „Hallo höflich“)</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-[#242426] border border-[#2E2E32] sm:col-span-2">
+                      <span className="text-amber-400 font-bold">7. Phase (1 bis 6)</span>
+                      <p className="text-[#8E8E93] text-[10px]">
+                        Wird beim Import für <strong className="text-white">dein angemeldetes Profil</strong> direkt als Leitner-Phase übernommen (1–6). Bei anderen Benutzern starten importierte Wörter standardmäßig in Phase 1.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Code-Beispiel */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-[#8E8E93] text-[10px] uppercase tracking-wider">
+                      Beispiel-CSV (Inhalt):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sample = `Deutsch;Thai;Romanisierung;Lektion;Beispielsatz Thai;Beispielsatz Deutsch;Phase (1-6)\nHallo;สวัสดี;sa-wat-dee;Begrüßung;สวัสดีครับ;Hallo (höflich);1\nDanke;ขอบคุณ;khop-khun;Begrüßung;ขอบคุณมาก;Vielen Dank;2\nLecker;อร่อย;a-roi;Essen & Trinken;อาหารนี้อร่อยมาก;Dieses Essen ist sehr lecker;3`;
+                        navigator.clipboard.writeText(sample);
+                        setCopiedTemplate(true);
+                        setTimeout(() => setCopiedTemplate(false), 2500);
+                      }}
+                      className="text-[10px] text-[#FF7A00] hover:text-[#FFA040] flex items-center gap-1 cursor-pointer font-medium"
+                    >
+                      {copiedTemplate ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400">Kopiert!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Muster kopieren</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <pre className="p-2.5 bg-[#121214] rounded-lg border border-[#2C2C2E] text-[10px] text-[#E4E4E7] overflow-x-auto font-mono leading-relaxed whitespace-pre selection:bg-[#FF7A00] selection:text-black">
+Deutsch;Thai;Romanisierung;Lektion;Beispielsatz Thai;Beispielsatz Deutsch;Phase (1-6)
+Hallo;สวัสดี;sa-wat-dee;Begrüßung;สวัสดีครับ;Hallo (höflich);1
+Danke;ขอบคุณ;khop-khun;Begrüßung;ขอบคุณมาก;Vielen Dank;2
+Lecker;อร่อย;a-roi;Essen & Trinken;อาหารนี้อร่อยมาก;Dieses Essen ist sehr lecker;3
+                  </pre>
+                </div>
+
+                {/* Download Template Button */}
+                <button
+                  type="button"
+                  onClick={downloadSampleCSVTemplate}
+                  className="w-full py-2 px-3 rounded-lg bg-[#242426] hover:bg-[#2C2C2E] border border-[#3A3A3D] text-[11px] font-semibold text-white flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#FF7A00]" />
+                  <span>Fertige Muster-CSV herunterladen (.csv)</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Preview Table of Parsed CSV/JSON */}
           {parsedRows && (
             <div className="mt-4 p-3 bg-[#1C1C1E] rounded-xl border border-[#3A3A3D] text-xs">
               <div className="flex items-center justify-between mb-2">
@@ -311,13 +444,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="max-h-40 overflow-y-auto space-y-1.5 mb-3 divide-y divide-[#2C2C2E]">
                 {parsedRows.slice(0, 5).map((row, idx) => (
                   <div key={idx} className="pt-1.5 flex items-center justify-between text-[11px]">
-                    <div>
+                    <div className="min-w-0 pr-2">
                       <span className="text-white font-medium">{row.german}</span> &rarr;{' '}
                       <span className="text-[#FF7A00] font-thai">{row.thai}</span>
                     </div>
-                    <span className="text-[#8E8E93] text-[10px] truncate max-w-[90px]">
-                      {row.lesson}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FF7A00]/20 text-[#FF7A00] font-bold">
+                        P{row.phase || 1}
+                      </span>
+                      <span className="text-[#8E8E93] text-[10px] truncate max-w-[80px]">
+                        {row.lesson}
+                      </span>
+                    </div>
                   </div>
                 ))}
                 {parsedRows.length > 5 && (
@@ -330,16 +468,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex gap-2">
                 <button
                   onClick={() => setParsedRows(null)}
-                  className="flex-1 py-2 rounded-lg bg-[#242426] text-xs text-[#8E8E93] hover:text-white"
+                  className="flex-1 py-2 rounded-lg bg-[#242426] text-xs text-[#8E8E93] hover:text-white cursor-pointer"
                 >
                   Abbrechen
                 </button>
                 <button
                   onClick={handleConfirmImport}
                   disabled={isImporting}
-                  className="flex-1 py-2 rounded-lg bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A]"
+                  className="flex-1 py-2 rounded-lg bg-[#FF7A00] text-black font-semibold text-xs hover:bg-[#FF881A] cursor-pointer disabled:opacity-50"
                 >
-                  {isImporting ? 'Importiere...' : 'Jetzt importieren'}
+                  {isImporting ? 'Wird importiert...' : 'Import bestätigen'}
                 </button>
               </div>
             </div>
@@ -490,7 +628,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="pt-3 flex items-start gap-2.5 text-xs text-[#8E8E93]">
             <span className="text-base">🇹🇭</span>
             <div>
-              <p className="text-[#D1D1D6] font-medium">Original phase6 iOS Schrift (Thonburi & Sarabun)</p>
+              <p className="text-[#D1D1D6] font-medium">iOS Systemschrift (Thonburi & Sarabun)</p>
               <p className="text-[11px] mt-0.5">
                 Klassische thailändische Schrift mit deutlichen Kringeln/Schlaufen (Heads/Loops) und optimaler Platzierung für Ton- und Vokalzeichen.
               </p>

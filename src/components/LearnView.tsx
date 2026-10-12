@@ -149,7 +149,7 @@ export const LearnView: React.FC<LearnViewProps> = ({
                   ภาษาไทย
                 </span>
                 <span className="text-xs text-[#A1A1AA] font-medium tracking-tight mt-1 block">
-                  phase6 Vokabeltrainer
+                  Thai Hasis Vokabeltrainer
                 </span>
               </div>
 

@@ -17,9 +17,26 @@ import { calculateNextReviewDate, calculateResetReviewDate } from '../utils/leit
 const VOCAB_COLLECTION = 'vocabularies';
 const PROGRESS_COLLECTION = 'user_progress';
 
-// Local storage fallback keys for offline persistence & caching
-const LOCAL_VOCAB_KEY = 'phase6_thai_vocabularies_v1';
-const LOCAL_PROGRESS_KEY = 'phase6_thai_progress_v1';
+// Local storage keys for offline persistence & caching
+const LOCAL_VOCAB_KEY = 'thai_hasis_vocabularies_v1';
+const LEGACY_VOCAB_KEY = 'phase6_thai_vocabularies_v1';
+const LOCAL_PROGRESS_KEY = 'thai_hasis_progress_v1';
+const LEGACY_PROGRESS_KEY = 'phase6_thai_progress_v1';
+
+function getCachedVocabs(): Vocabulary[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_VOCAB_KEY) || localStorage.getItem(LEGACY_VOCAB_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedVocabs(list: Vocabulary[]) {
+  try {
+    localStorage.setItem(LOCAL_VOCAB_KEY, JSON.stringify(list));
+  } catch {}
+}
 
 /**
  * Seed initial starter vocabulary list directly into Firestore and local cache
@@ -34,16 +51,14 @@ export async function seedInitialVocabularies(creatorId = 'system_starter'): Pro
       id,
       ...item,
       creatorId,
-      creatorName: 'phase6 Thai Team',
+      creatorName: 'Thai Hasi Team',
       createdAt: new Date().toISOString(),
     };
     seededList.push(vocabData);
   }
 
   // Save to local cache first
-  try {
-    localStorage.setItem(LOCAL_VOCAB_KEY, JSON.stringify(seededList));
-  } catch {}
+  saveCachedVocabs(seededList);
 
   // Commit batch seed to Firestore so all users have access
   try {
@@ -58,7 +73,7 @@ export async function seedInitialVocabularies(creatorId = 'system_starter'): Pro
         exampleThai: vocabData.exampleThai || '',
         exampleGerman: vocabData.exampleGerman || '',
         creatorId: vocabData.creatorId || 'system_starter',
-        creatorName: vocabData.creatorName || 'phase6 Thai Team',
+        creatorName: vocabData.creatorName || 'Thai Hasi Team',
         createdAt: vocabData.createdAt,
       });
     }
@@ -74,13 +89,10 @@ export async function seedInitialVocabularies(creatorId = 'system_starter'): Pro
  * Upload any vocabularies that exist in local cache but are missing from Firestore
  */
 export async function syncLocalVocabulariesToCloud(): Promise<number> {
-  const cached = localStorage.getItem(LOCAL_VOCAB_KEY);
-  if (!cached) return 0;
+  const localList = getCachedVocabs();
+  if (!Array.isArray(localList) || localList.length === 0) return 0;
 
   try {
-    const localList: Vocabulary[] = JSON.parse(cached);
-    if (!Array.isArray(localList) || localList.length === 0) return 0;
-
     const snap = await getDocs(collection(db, VOCAB_COLLECTION));
     const remoteIds = new Set<string>();
     snap.forEach((d) => remoteIds.add(d.id));
@@ -99,7 +111,7 @@ export async function syncLocalVocabulariesToCloud(): Promise<number> {
         exampleThai: v.exampleThai || '',
         exampleGerman: v.exampleGerman || '',
         creatorId: v.creatorId || auth.currentUser?.uid || 'community_user',
-        creatorName: v.creatorName || auth.currentUser?.displayName || 'Community',
+        creatorName: v.creatorName || auth.currentUser?.displayName || 'Thai Hasi',
         createdAt: v.createdAt || new Date().toISOString(),
       });
     }
@@ -125,24 +137,16 @@ export async function fetchCommunityVocabularies(): Promise<Vocabulary[]> {
 
       // Also check if there are local vocabularies not yet in Firestore, and sync them
       try {
-        const cached = localStorage.getItem(LOCAL_VOCAB_KEY);
-        if (cached) {
-          const localList: Vocabulary[] = JSON.parse(cached);
-          const remoteIds = new Set(list.map((v) => v.id));
-          const unsynced = localList.filter((v) => !remoteIds.has(v.id));
-          if (unsynced.length > 0) {
-            // Add unsynced local cards to list
-            list.unshift(...unsynced);
-            // Sync in background to Firestore
-            syncLocalVocabulariesToCloud().catch(() => {});
-          }
+        const localList = getCachedVocabs();
+        const remoteIds = new Set(list.map((v) => v.id));
+        const unsynced = localList.filter((v) => !remoteIds.has(v.id));
+        if (unsynced.length > 0) {
+          list.unshift(...unsynced);
+          syncLocalVocabulariesToCloud().catch(() => {});
         }
       } catch {}
 
-      // Save merged list to local cache
-      try {
-        localStorage.setItem(LOCAL_VOCAB_KEY, JSON.stringify(list));
-      } catch {}
+      saveCachedVocabs(list);
       return list;
     }
   } catch (error) {
@@ -150,16 +154,10 @@ export async function fetchCommunityVocabularies(): Promise<Vocabulary[]> {
   }
 
   // If Firestore is empty or failed, check local storage cache
-  const cached = localStorage.getItem(LOCAL_VOCAB_KEY);
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Attempt background push of these cached items to Firestore
-        syncLocalVocabulariesToCloud().catch(() => {});
-        return parsed;
-      }
-    } catch {}
+  const localList = getCachedVocabs();
+  if (Array.isArray(localList) && localList.length > 0) {
+    syncLocalVocabulariesToCloud().catch(() => {});
+    return localList;
   }
 
   // If both Firestore and local cache are empty, seed starter vocabularies
@@ -383,18 +381,24 @@ export async function deleteVocabulary(id: string, userId: string): Promise<void
 /**
  * Add a vocabulary item to a user's Leitner study deck
  */
-export async function addVocabToUserDeck(userId: string, vocabId: string): Promise<UserProgress> {
+export async function addVocabToUserDeck(
+  userId: string,
+  vocabId: string,
+  initialPhase = 1
+): Promise<UserProgress> {
+  const phase = initialPhase >= 1 && initialPhase <= 6 ? initialPhase : 1;
   const id = `${userId}_${vocabId}`;
   const now = new Date().toISOString();
+  const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
   const progress: UserProgress = {
     id,
     userId,
     vocabId,
-    phase: 1,
-    nextReviewDate: now,
+    phase,
+    nextReviewDate,
     lastReviewedAt: undefined,
-    streak: 0,
-    correctCount: 0,
+    streak: phase > 1 ? phase - 1 : 0,
+    correctCount: phase > 1 ? phase - 1 : 0,
     incorrectCount: 0,
     updatedAt: now,
   };
@@ -402,7 +406,7 @@ export async function addVocabToUserDeck(userId: string, vocabId: string): Promi
   // Save to local cache
   try {
     const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
-    const cached = localStorage.getItem(key);
+    const cached = localStorage.getItem(key) || localStorage.getItem(`${LEGACY_PROGRESS_KEY}_${userId}`);
     const map = cached ? JSON.parse(cached) : {};
     map[vocabId] = progress;
     localStorage.setItem(key, JSON.stringify(map));
@@ -418,27 +422,40 @@ export async function addVocabToUserDeck(userId: string, vocabId: string): Promi
   return progress;
 }
 
+export type DeckItemInput = string | { vocabId: string; phase?: number };
+
 /**
- * Add multiple vocabulary items to a user's Leitner deck
+ * Add multiple vocabulary items to a user's Leitner deck with optional custom initial phase
  */
-export async function addBatchToUserDeck(userId: string, vocabIds: string[]): Promise<void> {
-  if (!vocabIds.length) return;
+export async function addBatchToUserDeck(
+  userId: string,
+  items: DeckItemInput[]
+): Promise<void> {
+  if (!items.length) return;
   const now = new Date().toISOString();
+
+  // Normalize inputs
+  const normalized: { vocabId: string; phase: number }[] = items.map((it) => {
+    if (typeof it === 'string') return { vocabId: it, phase: 1 };
+    const p = it.phase && it.phase >= 1 && it.phase <= 6 ? it.phase : 1;
+    return { vocabId: it.vocabId, phase: p };
+  });
 
   // Save to local cache
   try {
     const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
-    const cached = localStorage.getItem(key);
+    const cached = localStorage.getItem(key) || localStorage.getItem(`${LEGACY_PROGRESS_KEY}_${userId}`);
     const map = cached ? JSON.parse(cached) : {};
-    for (const vocabId of vocabIds) {
+    for (const { vocabId, phase } of normalized) {
+      const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
       map[vocabId] = {
         id: `${userId}_${vocabId}`,
         userId,
         vocabId,
-        phase: 1,
-        nextReviewDate: now,
-        streak: 0,
-        correctCount: 0,
+        phase,
+        nextReviewDate,
+        streak: phase > 1 ? phase - 1 : 0,
+        correctCount: phase > 1 ? phase - 1 : 0,
         incorrectCount: 0,
         updatedAt: now,
       };
@@ -449,17 +466,18 @@ export async function addBatchToUserDeck(userId: string, vocabIds: string[]): Pr
   // Sync batch to Firestore
   try {
     const batch = writeBatch(db);
-    for (const vocabId of vocabIds) {
+    for (const { vocabId, phase } of normalized) {
       const id = `${userId}_${vocabId}`;
       const ref = doc(db, PROGRESS_COLLECTION, id);
+      const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
       batch.set(ref, {
         id,
         userId,
         vocabId,
-        phase: 1,
-        nextReviewDate: now,
-        streak: 0,
-        correctCount: 0,
+        phase,
+        nextReviewDate,
+        streak: phase > 1 ? phase - 1 : 0,
+        correctCount: phase > 1 ? phase - 1 : 0,
         incorrectCount: 0,
         updatedAt: now,
       });
@@ -468,6 +486,112 @@ export async function addBatchToUserDeck(userId: string, vocabIds: string[]): Pr
   } catch (error) {
     console.warn('Batch add error (saved locally):', error);
   }
+}
+
+/**
+ * Rename a lesson across all vocabularies in local cache & Firestore
+ */
+export async function renameLesson(oldName: string, newName: string): Promise<number> {
+  const cleanOld = oldName.trim();
+  const cleanNew = newName.trim();
+  if (!cleanOld || !cleanNew || cleanOld === cleanNew) return 0;
+
+  // 1. Local update
+  const list = getCachedVocabs();
+  let updatedCount = 0;
+  const updatedList = list.map((v) => {
+    if (v.lesson === cleanOld) {
+      updatedCount++;
+      return { ...v, lesson: cleanNew };
+    }
+    return v;
+  });
+  saveCachedVocabs(updatedList);
+
+  // 2. Firestore batch update
+  try {
+    const q = query(collection(db, VOCAB_COLLECTION), where('lesson', '==', cleanOld));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.forEach((d) => {
+        batch.update(d.ref, { lesson: cleanNew });
+      });
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn('Error renaming lesson in Firestore:', err);
+  }
+
+  return updatedCount;
+}
+
+/**
+ * Delete a lesson: either delete all its vocabularies or move them to another lesson
+ */
+export async function deleteLesson(
+  lessonName: string,
+  deleteVocabs: boolean,
+  moveToLesson = 'Allgemein'
+): Promise<number> {
+  const cleanLesson = lessonName.trim();
+  if (!cleanLesson) return 0;
+
+  const list = getCachedVocabs();
+  const matched = list.filter((v) => v.lesson === cleanLesson);
+  const matchedIds = matched.map((v) => v.id);
+
+  if (deleteVocabs) {
+    // Remove from local cache
+    const remaining = list.filter((v) => v.lesson !== cleanLesson);
+    saveCachedVocabs(remaining);
+
+    // Remove from Firestore
+    try {
+      const batch = writeBatch(db);
+      for (const id of matchedIds) {
+        batch.delete(doc(db, VOCAB_COLLECTION, id));
+      }
+      await batch.commit();
+    } catch (err) {
+      console.warn('Error deleting lesson vocabularies in Firestore:', err);
+    }
+  } else {
+    // Move to another lesson
+    await renameLesson(cleanLesson, moveToLesson);
+  }
+
+  return matchedIds.length;
+}
+
+/**
+ * Move multiple vocabularies to a target lesson
+ */
+export async function moveVocabulariesToLesson(
+  vocabIds: string[],
+  targetLesson: string
+): Promise<number> {
+  const cleanTarget = targetLesson.trim();
+  if (!vocabIds.length || !cleanTarget) return 0;
+
+  // 1. Local update
+  const list = getCachedVocabs();
+  const idSet = new Set(vocabIds);
+  const updatedList = list.map((v) => (idSet.has(v.id) ? { ...v, lesson: cleanTarget } : v));
+  saveCachedVocabs(updatedList);
+
+  // 2. Firestore update
+  try {
+    const batch = writeBatch(db);
+    for (const id of vocabIds) {
+      batch.update(doc(db, VOCAB_COLLECTION, id), { lesson: cleanTarget });
+    }
+    await batch.commit();
+  } catch (err) {
+    console.warn('Error moving vocabularies in Firestore:', err);
+  }
+
+  return vocabIds.length;
 }
 
 /**

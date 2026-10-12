@@ -30,7 +30,7 @@ export const StudySummaryModal: React.FC<StudySummaryModalProps> = ({
   const [mode, setMode] = useState<StudyMode>(() => {
     if (initialMode) return initialMode;
     try {
-      return (localStorage.getItem('phase6_study_mode') as StudyMode) || 'skip_preview';
+      return (localStorage.getItem('thai_hasis_study_mode') || localStorage.getItem('phase6_study_mode') || 'skip_preview') as StudyMode;
     } catch {
       return 'skip_preview';
     }
@@ -39,7 +39,7 @@ export const StudySummaryModal: React.FC<StudySummaryModalProps> = ({
   const [direction, setDirection] = useState<StudyDirection>(() => {
     if (initialDirection) return initialDirection;
     try {
-      return (localStorage.getItem('phase6_study_direction') as StudyDirection) || 'both';
+      return (localStorage.getItem('thai_hasis_study_direction') || localStorage.getItem('phase6_study_direction') || 'both') as StudyDirection;
     } catch {
       return 'both';
     }
@@ -47,7 +47,7 @@ export const StudySummaryModal: React.FC<StudySummaryModalProps> = ({
 
   const [inputMethod, setInputMethod] = useState<StudyInputMethod>(() => {
     try {
-      return (localStorage.getItem('phase6_default_input_method') as StudyInputMethod) || defaultInputMethod;
+      return ((localStorage.getItem('thai_hasis_default_input_method') || localStorage.getItem('phase6_default_input_method')) as StudyInputMethod) || defaultInputMethod;
     } catch {
       return defaultInputMethod;
     }
@@ -57,9 +57,9 @@ export const StudySummaryModal: React.FC<StudySummaryModalProps> = ({
 
   const handleStart = () => {
     try {
-      localStorage.setItem('phase6_study_mode', mode);
-      localStorage.setItem('phase6_study_direction', direction);
-      localStorage.setItem('phase6_default_input_method', inputMethod);
+      localStorage.setItem('thai_hasis_study_mode', mode);
+      localStorage.setItem('thai_hasis_study_direction', direction);
+      localStorage.setItem('thai_hasis_default_input_method', inputMethod);
     } catch {}
     onStart(mode, direction, inputMethod);
   };
