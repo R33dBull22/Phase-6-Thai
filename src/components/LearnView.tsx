@@ -141,20 +141,28 @@ export const LearnView: React.FC<LearnViewProps> = ({
           {/* Left Course Card */}
           <div className="col-span-7 flex flex-col">
             <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] shadow-lg flex items-center justify-center group">
-              <div className="absolute inset-0 bg-[radial-gradient(#3A3A3D_1px,transparent_1px)] [background-size:16px_16px] opacity-40" />
+              {/* Background Wat Arun image */}
+              <img
+                src="/src/assets/images/wat_arun_bangkok_1791796492408.jpg"
+                alt="Wat Arun Bangkok"
+                referrerPolicy="no-referrer"
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
+              {/* Gradient overlays for optimal readability */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/35" />
 
               <div className="text-center p-4 relative z-10">
                 <span className="text-4xl block mb-2 drop-shadow-md">🇹🇭</span>
-                <span className="text-2xl font-bold font-thai tracking-wide text-white block">
+                <span className="text-2xl font-bold font-thai tracking-wide text-white block drop-shadow-md">
                   ภาษาไทย
                 </span>
-                <span className="text-xs text-[#A1A1AA] font-medium tracking-tight mt-1 block">
+                <span className="text-xs text-white/95 font-semibold tracking-tight mt-1 block drop-shadow">
                   Thai Hasis Vokabeltrainer
                 </span>
               </div>
 
               {/* Avatar circle overlay matching IMG_6334.png */}
-              <div className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-slate-800 shadow-md border border-white">
+              <div className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-slate-800 shadow-md border border-white z-10">
                 <span className="text-base font-bold">👤</span>
               </div>
             </div>
