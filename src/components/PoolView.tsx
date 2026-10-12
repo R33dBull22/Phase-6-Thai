@@ -15,6 +15,8 @@ import {
   FolderEdit,
   X,
   AlertTriangle,
+  RotateCcw,
+  ArrowDownCircle,
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
 import { speakThai } from '../utils/thaiAudio';
@@ -32,6 +34,9 @@ interface PoolViewProps {
   onRenameLesson?: (oldName: string, newName: string) => Promise<void>;
   onDeleteLesson?: (lessonName: string, deleteVocabs: boolean, moveToLesson?: string) => Promise<void>;
   onMoveVocabs?: (vocabIds: string[], targetLesson: string) => Promise<void>;
+  onStepBackLesson?: (lessonName: string) => Promise<number>;
+  onResetVocabsPhase?: (vocabIds: string[]) => Promise<number>;
+  onUpdateSinglePhase?: (vocabId: string, newPhase: number) => Promise<void>;
   existingLessons?: string[];
 }
 
@@ -46,6 +51,9 @@ export const PoolView: React.FC<PoolViewProps> = ({
   onRenameLesson,
   onDeleteLesson,
   onMoveVocabs,
+  onStepBackLesson,
+  onResetVocabsPhase,
+  onUpdateSinglePhase,
   existingLessons = [],
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,6 +63,12 @@ export const PoolView: React.FC<PoolViewProps> = ({
   const [isAddingToDeck, setIsAddingToDeck] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [editingVocab, setEditingVocab] = useState<Vocabulary | null>(null);
+
+  // Phase manipulation states
+  const [stepBackConfirmLesson, setStepBackConfirmLesson] = useState<string | null>(null);
+  const [isSteppingBack, setIsSteppingBack] = useState(false);
+  const [showResetSelectedConfirm, setShowResetSelectedConfirm] = useState(false);
+  const [isResettingSelected, setIsResettingSelected] = useState(false);
 
   // Lesson rename state
   const [renamingLesson, setRenamingLesson] = useState<string | null>(null);
@@ -240,6 +254,44 @@ export const PoolView: React.FC<PoolViewProps> = ({
     }
   };
 
+  // Handle Step Back All Cards in Lesson
+  const handleConfirmStepBackLesson = async () => {
+    if (!stepBackConfirmLesson || !onStepBackLesson) return;
+    setIsSteppingBack(true);
+    try {
+      const count = await onStepBackLesson(stepBackConfirmLesson);
+      setToastMessage(
+        `✓ ${count} Vokabeln der Lektion „${stepBackConfirmLesson}“ um eine Phase zurückgestellt!`
+      );
+      setStepBackConfirmLesson(null);
+      setTimeout(() => setToastMessage(null), 4500);
+    } catch (err: any) {
+      setToastMessage(`Fehler: ${err.message || 'Konnte Phase nicht zurückstellen'}`);
+    } finally {
+      setIsSteppingBack(false);
+    }
+  };
+
+  // Handle Reset Selected Cards to Phase 1 (von Anfang an lernen)
+  const handleConfirmResetSelected = async () => {
+    if (!selectedIds.size || !onResetVocabsPhase) return;
+    setIsResettingSelected(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const count = await onResetVocabsPhase(ids);
+      setToastMessage(
+        `✓ ${count} ausgewählte Vokabeln werden jetzt von Anfang an gelernt (in Phase 1 zurückgesetzt)!`
+      );
+      setSelectedIds(new Set());
+      setShowResetSelectedConfirm(false);
+      setTimeout(() => setToastMessage(null), 4500);
+    } catch (err: any) {
+      setToastMessage(`Fehler: ${err.message || 'Konnte Vokabeln nicht zurücksetzen'}`);
+    } finally {
+      setIsResettingSelected(false);
+    }
+  };
+
   const selectedCount = selectedIds.size;
   const selectedNotInDeck = Array.from(selectedIds).filter((id) => !progressMap[id]).length;
 
@@ -398,6 +450,18 @@ export const PoolView: React.FC<PoolViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    {/* Step Back Phase button for lesson */}
+                    {onStepBackLesson && (
+                      <button
+                        type="button"
+                        onClick={() => setStepBackConfirmLesson(lesson)}
+                        className="p-1 rounded-md text-[#8E8E93] hover:text-amber-400 hover:bg-[#1C1C1E] transition-colors cursor-pointer"
+                        title="Alle Vokabeln dieser Lektion um eine Phase zurückschieben"
+                      >
+                        <ArrowDownCircle className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
                     {/* Rename Lesson button */}
                     {onRenameLesson && (
                       <button
@@ -770,6 +834,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
       {editingVocab && (
         <EditVocabModal
           vocab={editingVocab}
+          currentPhase={progressMap[editingVocab.id]?.phase || 1}
           isOpen={Boolean(editingVocab)}
           onClose={() => setEditingVocab(null)}
           onSave={async (id, data) => {
@@ -788,6 +853,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
                 }
               : undefined
           }
+          onUpdatePhase={onUpdateSinglePhase}
           existingLessons={
             existingLessons.length > 0
               ? existingLessons
@@ -796,31 +862,146 @@ export const PoolView: React.FC<PoolViewProps> = ({
         />
       )}
 
+      {/* Modal: Lektion um eine Phase zurückstellen */}
+      {stepBackConfirmLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#1C1C1E] border border-amber-500/40 rounded-3xl w-full max-w-sm p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-3">
+              <div className="flex items-center gap-2 text-amber-400">
+                <ArrowDownCircle className="w-5 h-5 shrink-0" />
+                <h3 className="text-base font-bold text-white">Lektion zurückstellen</h3>
+              </div>
+              <button
+                onClick={() => setStepBackConfirmLesson(null)}
+                className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#D1D1D6] mb-3 leading-relaxed">
+              Möchtest du alle Vokabeln der Lektion <strong className="text-white">„{stepBackConfirmLesson}“</strong> um eine Phase zurückschieben?
+            </p>
+
+            <div className="bg-[#242426] p-3 rounded-xl border border-[#323236] text-[11px] text-[#A1A1AA] mb-4 space-y-1">
+              <p>• Vokabeln in Phase 2–6 fallen jeweils um eine Stufe zurück (z. B. Phase 3 &rarr; 2).</p>
+              <p>• Vokabeln in Phase 1 bleiben in Phase 1 und sind sofort wieder fällig.</p>
+              <p>• Noch nicht gelernte Karten werden in Phase 1 aufgenommen.</p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setStepBackConfirmLesson(null)}
+                className="flex-1 py-2.5 rounded-full bg-[#2C2C2E] text-white text-xs font-semibold hover:bg-[#3A3A3D] cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmStepBackLesson}
+                disabled={isSteppingBack}
+                className="flex-1 py-2.5 rounded-full bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 cursor-pointer disabled:opacity-50"
+              >
+                {isSteppingBack ? 'Zurückstellen...' : '1 Phase zurück'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ausgewählte Vokabeln von Anfang an lernen (Phase 1) */}
+      {showResetSelectedConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#1C1C1E] border border-[#FF7A00]/40 rounded-3xl w-full max-w-sm p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2C2C2E] mb-3">
+              <div className="flex items-center gap-2 text-[#FF7A00]">
+                <RotateCcw className="w-5 h-5 shrink-0" />
+                <h3 className="text-base font-bold text-white">Von Anfang an lernen</h3>
+              </div>
+              <button
+                onClick={() => setShowResetSelectedConfirm(false)}
+                className="w-7 h-7 rounded-full bg-[#2C2C2E] flex items-center justify-center text-[#8E8E93] hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#D1D1D6] mb-3 leading-relaxed">
+              Möchtest du die <strong className="text-[#FF7A00]">{selectedCount}</strong> ausgewählten {selectedCount === 1 ? 'Vokabel' : 'Vokabeln'} komplett von vorne lernen?
+            </p>
+
+            <div className="bg-[#242426] p-3 rounded-xl border border-[#323236] text-[11px] text-[#A1A1AA] mb-4 space-y-1">
+              <p>• Alle markierten Vokabeln werden auf <strong className="text-white">Phase 1</strong> gesetzt.</p>
+              <p>• Die Karten stehen ab sofort direkt zur Wiederholung bereit.</p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowResetSelectedConfirm(false)}
+                className="flex-1 py-2.5 rounded-full bg-[#2C2C2E] text-white text-xs font-semibold hover:bg-[#3A3A3D] cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetSelected}
+                disabled={isResettingSelected}
+                className="flex-1 py-2.5 rounded-full bg-[#FF7A00] text-black text-xs font-bold hover:bg-[#FF881A] cursor-pointer disabled:opacity-50"
+              >
+                {isResettingSelected ? 'Zurücksetzen...' : 'Auf Phase 1 setzen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky Bottom Actions */}
       <div className="fixed bottom-16 left-0 right-0 z-30 bg-[#121214]/95 backdrop-blur-md border-t border-[#2C2C2E] p-3 px-4">
         <div className="max-w-md mx-auto space-y-2">
           {/* Outlined button: + Vokabeln eingeben */}
           <button
             onClick={onNavigateCreate}
-            className="w-full py-3 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-white font-semibold text-xs hover:bg-[#242426] transition-colors flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer"
+            className="w-full py-2.5 rounded-full bg-[#1C1C1E] border border-[#3A3A3D] text-white font-semibold text-xs hover:bg-[#242426] transition-colors flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer"
           >
             <Plus className="w-4 h-4 text-[#FF7A00]" />
             <span>+ Vokabeln eingeben</span>
           </button>
 
-          {/* If cards are selected, provide Move button */}
-          {selectedCount > 0 && onMoveVocabs && (
-            <button
-              onClick={() => {
-                setTargetMoveLesson('');
-                setCustomTargetMoveLesson('');
-                setMoveModalOpen(true);
-              }}
-              className="w-full py-3 rounded-full bg-[#242426] border border-[#FF7A00]/50 text-[#FF7A00] font-semibold text-xs hover:bg-[#2C2C2E] transition-colors active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer shadow"
-            >
-              <FolderInput className="w-4 h-4" />
-              <span>{selectedCount} Vokabeln in andere Lektion verschieben</span>
-            </button>
+          {/* Action Row for Selected Vocabs: Move + Von Anfang an lernen */}
+          {selectedCount > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {/* Von Anfang an lernen Button */}
+              {onResetVocabsPhase && (
+                <button
+                  type="button"
+                  onClick={() => setShowResetSelectedConfirm(true)}
+                  className="py-2.5 px-3 rounded-full bg-[#242426] border border-amber-500/50 text-amber-300 font-semibold text-xs hover:bg-[#2C2C2E] transition-colors active:scale-[0.99] flex items-center justify-center gap-1.5 cursor-pointer shadow"
+                  title="Ausgewählte Vokabeln auf Phase 1 zurücksetzen"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="truncate">Von Anfang an ({selectedCount})</span>
+                </button>
+              )}
+
+              {/* Move to another lesson Button */}
+              {onMoveVocabs && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetMoveLesson('');
+                    setCustomTargetMoveLesson('');
+                    setMoveModalOpen(true);
+                  }}
+                  className="py-2.5 px-3 rounded-full bg-[#242426] border border-[#FF7A00]/50 text-[#FF7A00] font-semibold text-xs hover:bg-[#2C2C2E] transition-colors active:scale-[0.99] flex items-center justify-center gap-1.5 cursor-pointer shadow"
+                  title="Vokabeln in andere Lektion verschieben"
+                >
+                  <FolderInput className="w-3.5 h-3.5" />
+                  <span className="truncate">Verschieben ({selectedCount})</span>
+                </button>
+              )}
+            </div>
           )}
 
           {/* If cards not in deck are selected, show add option, or directly study */}

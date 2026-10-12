@@ -13,19 +13,23 @@ import { speakThai } from '../utils/thaiAudio';
 
 interface EditVocabModalProps {
   vocab: Vocabulary | null;
+  currentPhase?: number;
   isOpen: boolean;
   onClose: () => void;
   onSave: (id: string, updatedData: Partial<Omit<Vocabulary, 'id' | 'createdAt'>>) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
+  onUpdatePhase?: (vocabId: string, newPhase: number) => Promise<void>;
   existingLessons: string[];
 }
 
 export const EditVocabModal: React.FC<EditVocabModalProps> = ({
   vocab,
+  currentPhase,
   isOpen,
   onClose,
   onSave,
   onDelete,
+  onUpdatePhase,
   existingLessons,
 }) => {
   const [german, setGerman] = useState('');
@@ -35,6 +39,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
   const [customLesson, setCustomLesson] = useState('');
   const [exampleThai, setExampleThai] = useState('');
   const [exampleGerman, setExampleGerman] = useState('');
+  const [selectedPhase, setSelectedPhase] = useState<number>(currentPhase || 1);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -48,6 +53,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
       setRomanization(vocab.romanization || '');
       setExampleThai(vocab.exampleThai || '');
       setExampleGerman(vocab.exampleGerman || '');
+      setSelectedPhase(currentPhase || 1);
 
       const isKnownLesson = existingLessons.includes(vocab.lesson);
       if (isKnownLesson) {
@@ -60,7 +66,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
       setErrorMessage(null);
       setShowDeleteConfirm(false);
     }
-  }, [vocab, existingLessons]);
+  }, [vocab, currentPhase, existingLessons]);
 
   if (!isOpen || !vocab) return null;
 
@@ -93,6 +99,11 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
         exampleThai: exampleThai.trim() || undefined,
         exampleGerman: exampleGerman.trim() || undefined,
       });
+
+      if (onUpdatePhase && selectedPhase !== currentPhase) {
+        await onUpdatePhase(vocab.id, selectedPhase);
+      }
+
       onClose();
     } catch (err: any) {
       setErrorMessage(err.message || 'Fehler beim Speichern der Änderungen.');
@@ -257,6 +268,40 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
               placeholder="Deutsche Übersetzung"
               className="w-full bg-[#1C1C1E] border border-[#3A3A3D] rounded-xl px-3 py-2 text-sm text-[#D1D1D6] focus:outline-none focus:border-[#FF7A00]"
             />
+          </div>
+
+          {/* Phase bearbeiten */}
+          <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
+                Lernphase (Leitner 1–6)
+              </label>
+              <span className="text-[11px] font-bold text-[#FF7A00]">
+                Phase {selectedPhase}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] mb-3 leading-relaxed">
+              Wähle direkt die Phase, in der sich diese Vokabel in deinem persönlichen Leitner-System befinden soll:
+            </p>
+            <div className="grid grid-cols-6 gap-1.5">
+              {[1, 2, 3, 4, 5, 6].map((p) => {
+                const isSelected = selectedPhase === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setSelectedPhase(p)}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-[#FF7A00] text-black border-[#FF7A00] shadow-md scale-105'
+                        : 'bg-[#1C1C1E] text-[#8E8E93] border-[#3A3A3D] hover:text-white hover:border-[#52525B]'
+                    }`}
+                  >
+                    P{p}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Action Buttons */}

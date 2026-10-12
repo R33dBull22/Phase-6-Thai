@@ -16,6 +16,9 @@ import {
   renameLesson,
   deleteLesson,
   moveVocabulariesToLesson,
+  updateVocabPhase,
+  resetVocabsToPhaseOne,
+  stepBackLessonPhase,
 } from './services/vocabService';
 import { Navigation } from './components/Navigation';
 import { LearnView } from './components/LearnView';
@@ -351,6 +354,45 @@ function AppContent() {
     }
   };
 
+  // Step back all vocabularies in a lesson by 1 phase
+  const handleStepBackLesson = async (lessonName: string): Promise<number> => {
+    if (!user) return 0;
+    const userId = user.uid;
+    const lessonVocabs = vocabularies.filter((v) => (v.lesson || 'Allgemein') === lessonName);
+    const lessonVocabIds = lessonVocabs.map((v) => v.id);
+    if (!lessonVocabIds.length) return 0;
+
+    const updatedProgress = await stepBackLessonPhase(userId, lessonVocabIds, progressMap);
+    setProgressMap((prev) => ({
+      ...prev,
+      ...updatedProgress,
+    }));
+    return lessonVocabIds.length;
+  };
+
+  // Reset multiple selected vocabularies to start from Phase 1 (von Anfang an lernen)
+  const handleResetVocabsPhase = async (vocabIds: string[]): Promise<number> => {
+    if (!user || !vocabIds.length) return 0;
+    const userId = user.uid;
+    const updatedProgress = await resetVocabsToPhaseOne(userId, vocabIds);
+    setProgressMap((prev) => ({
+      ...prev,
+      ...updatedProgress,
+    }));
+    return vocabIds.length;
+  };
+
+  // Update single vocabulary phase
+  const handleUpdateSinglePhase = async (vocabId: string, newPhase: number) => {
+    if (!user) return;
+    const userId = user.uid;
+    const updated = await updateVocabPhase(userId, vocabId, newPhase);
+    setProgressMap((prev) => ({
+      ...prev,
+      [vocabId]: updated,
+    }));
+  };
+
   // Start active study session
   const handleStartSession = (
     cards: { vocab: Vocabulary; progress?: UserProgress }[],
@@ -449,6 +491,9 @@ function AppContent() {
                 onRenameLesson={handleRenameLesson}
                 onDeleteLesson={handleDeleteLesson}
                 onMoveVocabs={handleMoveVocabs}
+                onStepBackLesson={handleStepBackLesson}
+                onResetVocabsPhase={handleResetVocabsPhase}
+                onUpdateSinglePhase={handleUpdateSinglePhase}
                 existingLessons={existingLessons}
               />
             )}

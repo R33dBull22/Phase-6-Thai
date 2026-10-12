@@ -615,6 +615,187 @@ export async function addVocabToUserDeck(
 export type DeckItemInput = string | { vocabId: string; phase?: number };
 
 /**
+ * Explicitly update the Leitner phase of a single vocabulary item for a user
+ */
+export async function updateVocabPhase(
+  userId: string,
+  vocabId: string,
+  targetPhase: number
+): Promise<UserProgress> {
+  const phase = Math.max(1, Math.min(6, targetPhase));
+  const id = `${userId}_${vocabId}`;
+  const now = new Date().toISOString();
+  const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
+
+  const progress: UserProgress = {
+    id,
+    userId,
+    vocabId,
+    phase,
+    nextReviewDate,
+    lastReviewedAt: undefined,
+    streak: phase > 1 ? phase - 1 : 0,
+    correctCount: phase > 1 ? phase - 1 : 0,
+    incorrectCount: 0,
+    updatedAt: now,
+  };
+
+  // 1. Local update
+  try {
+    const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
+    const cached = localStorage.getItem(key);
+    const map = cached ? JSON.parse(cached) : {};
+    map[vocabId] = progress;
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {}
+
+  // 2. Firestore update
+  try {
+    await setDoc(doc(db, PROGRESS_COLLECTION, id), progress);
+  } catch (err) {
+    console.warn('Error updating vocab phase in Firestore:', err);
+  }
+
+  return progress;
+}
+
+/**
+ * Reset multiple selected vocabularies to start from Phase 1 (von Anfang an lernen)
+ */
+export async function resetVocabsToPhaseOne(
+  userId: string,
+  vocabIds: string[]
+): Promise<Record<string, UserProgress>> {
+  if (!vocabIds.length || !userId) return {};
+  const now = new Date().toISOString();
+  const updatedMap: Record<string, UserProgress> = {};
+
+  // Local cache update
+  try {
+    const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
+    const cached = localStorage.getItem(key);
+    const map = cached ? JSON.parse(cached) : {};
+
+    for (const vId of vocabIds) {
+      const p: UserProgress = {
+        id: `${userId}_${vId}`,
+        userId,
+        vocabId: vId,
+        phase: 1,
+        nextReviewDate: now,
+        lastReviewedAt: undefined,
+        streak: 0,
+        correctCount: 0,
+        incorrectCount: 0,
+        updatedAt: now,
+      };
+      map[vId] = p;
+      updatedMap[vId] = p;
+    }
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {}
+
+  // Firestore batch update
+  try {
+    const batch = writeBatch(db);
+    for (const vId of vocabIds) {
+      const id = `${userId}_${vId}`;
+      const ref = doc(db, PROGRESS_COLLECTION, id);
+      batch.set(ref, {
+        id,
+        userId,
+        vocabId: vId,
+        phase: 1,
+        nextReviewDate: now,
+        streak: 0,
+        correctCount: 0,
+        incorrectCount: 0,
+        updatedAt: now,
+      });
+    }
+    await batch.commit();
+  } catch (err) {
+    console.warn('Error resetting vocabs to phase 1 in Firestore:', err);
+  }
+
+  return updatedMap;
+}
+
+/**
+ * Step back all vocabularies in a lesson by one phase (um eine Phase zurückschieben).
+ * For cards in Phase > 1: phase = phase - 1.
+ * For cards in Phase 1: stays in Phase 1 and resets nextReviewDate to now (due immediately).
+ * For cards not yet in the user deck: enqueues them into Phase 1.
+ */
+export async function stepBackLessonPhase(
+  userId: string,
+  lessonVocabIds: string[],
+  currentProgressMap: Record<string, UserProgress>
+): Promise<Record<string, UserProgress>> {
+  if (!lessonVocabIds.length || !userId) return {};
+  const now = new Date().toISOString();
+  const updatedMap: Record<string, UserProgress> = {};
+
+  // 1. Compute changes locally
+  try {
+    const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
+    const cached = localStorage.getItem(key);
+    const map = cached ? JSON.parse(cached) : {};
+
+    for (const vId of lessonVocabIds) {
+      const existing = currentProgressMap[vId] || map[vId];
+      let newPhase = 1;
+      let nextReviewDate = now;
+
+      if (existing) {
+        newPhase = Math.max(1, existing.phase - 1);
+        nextReviewDate = newPhase > 1 ? calculateNextReviewDate(newPhase) : now;
+      }
+
+      const p: UserProgress = {
+        id: `${userId}_${vId}`,
+        userId,
+        vocabId: vId,
+        phase: newPhase,
+        nextReviewDate,
+        lastReviewedAt: existing?.lastReviewedAt,
+        streak: newPhase > 1 ? newPhase - 1 : 0,
+        correctCount: existing?.correctCount || 0,
+        incorrectCount: existing?.incorrectCount || 0,
+        updatedAt: now,
+      };
+      map[vId] = p;
+      updatedMap[vId] = p;
+    }
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {}
+
+  // 2. Batch update Firestore
+  try {
+    const batch = writeBatch(db);
+    for (const [vId, p] of Object.entries(updatedMap)) {
+      const ref = doc(db, PROGRESS_COLLECTION, p.id);
+      batch.set(ref, {
+        id: p.id,
+        userId: p.userId,
+        vocabId: p.vocabId,
+        phase: p.phase,
+        nextReviewDate: p.nextReviewDate,
+        streak: p.streak,
+        correctCount: p.correctCount,
+        incorrectCount: p.incorrectCount,
+        updatedAt: p.updatedAt,
+      });
+    }
+    await batch.commit();
+  } catch (err) {
+    console.warn('Error stepping back lesson phases in Firestore:', err);
+  }
+
+  return updatedMap;
+}
+
+/**
  * Add multiple vocabulary items to a user's Leitner deck with optional custom initial phase
  */
 export async function addBatchToUserDeck(
