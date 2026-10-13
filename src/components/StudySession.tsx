@@ -547,53 +547,51 @@ export const StudySession: React.FC<StudySessionProps> = ({
             {/* Revealed / Evaluated Solution */}
             {isRevealed && (
               <div className="mt-4 pt-4 border-t border-[#3A3A3D]/70 animate-in fade-in duration-200">
-                {/* User's typed input during evaluation */}
+                {/* User's typed input during evaluation (centered, same font size as answer) */}
                 {isEvaluated && isTyping && (
-                  <div
-                    className={`mb-3.5 p-3 rounded-2xl border text-left transition-all ${
-                      isTypingCorrect
-                        ? 'bg-emerald-500/10 border-emerald-500/35'
-                        : 'bg-[#202022] border-[#FF7A00]/50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
+                  <div className="mb-4 text-center">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-2 bg-[#202022] border border-[#3A3A3D]">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">
                         Deine Eingabe
                       </span>
-                      <span
-                        className={`text-xs font-semibold flex items-center gap-1 ${
-                          isTypingCorrect ? 'text-emerald-400' : 'text-[#FFA040]'
-                        }`}
-                      >
-                        {isTypingCorrect ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Richtig</span>
-                            <span className="ml-0.5">😊</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>Abweichung</span>
-                            <span className="ml-0.5">☹️</span>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <p className="font-thai text-base sm:text-lg text-white font-medium break-all">
-                      {userInput.trim() ? (
-                        userInput
+                      <span className="text-[#8E8E93]">·</span>
+                      {isTypingCorrect ? (
+                        <span className="text-emerald-400 flex items-center gap-1 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Richtig</span>
+                          <span>😊</span>
+                        </span>
                       ) : (
-                        <span className="text-[#71717A] italic text-xs font-normal">
-                          (Keine Eingabe)
+                        <span className="text-[#FFA040] flex items-center gap-1 font-semibold">
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Abweichung</span>
+                          <span>☹️</span>
                         </span>
                       )}
-                    </p>
+                    </div>
+
+                    <div className={isTypingCorrect ? 'text-emerald-300' : 'text-[#FFA040]'}>
+                      <h3
+                        className={`${
+                          isDeToThai
+                            ? 'text-3xl sm:text-4xl font-thai font-semibold tracking-normal'
+                            : 'text-2xl sm:text-3xl font-bold'
+                        } break-all mb-1`}
+                      >
+                        {userInput.trim() ? (
+                          userInput
+                        ) : (
+                          <span className="text-[#71717A] italic text-base font-normal">
+                            (Keine Eingabe)
+                          </span>
+                        )}
+                      </h3>
+                    </div>
                   </div>
                 )}
 
                 {isDeToThai ? (
-                  <div>
+                  <div className="text-center">
                     {isEvaluated && isTyping && (
                       <span className="text-[10px] uppercase font-bold text-[#8E8E93] tracking-wider block mb-1">
                         Richtige Lösung
@@ -609,7 +607,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     )}
                   </div>
                 ) : (
-                  <div>
+                  <div className="text-center">
                     {isEvaluated && isTyping && (
                       <span className="text-[10px] uppercase font-bold text-[#8E8E93] tracking-wider block mb-1">
                         Richtige Lösung
