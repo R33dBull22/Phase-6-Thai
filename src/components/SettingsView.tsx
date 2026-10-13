@@ -21,7 +21,9 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  Key,
 } from 'lucide-react';
+import { isLiveFirebaseApiKeyConfigured } from '../firebase/config';
 import { Vocabulary, UserProgress, DeletedVocabEntry } from '../types/vocab';
 import { StudyInputMethod, StudyMode, StudyDirection } from './StudySession';
 import {
@@ -130,6 +132,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCsvFormatGuide, setShowCsvFormatGuide] = useState(true);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
+
+  // Local browser API Key override (kept strictly client-side in localStorage, never committed to git)
+  const [showApiKeySettings, setShowApiKeySettings] = useState(false);
+  const [localApiKeyInput, setLocalApiKeyInput] = useState(() => {
+    try {
+      return localStorage.getItem('thai_hasis_firebase_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [apiKeyToast, setApiKeyToast] = useState<string | null>(null);
+
+  const handleSaveLocalApiKey = () => {
+    try {
+      const trimmed = localApiKeyInput.trim();
+      if (trimmed) {
+        localStorage.setItem('thai_hasis_firebase_api_key', trimmed);
+        setApiKeyToast('API-Schlüssel lokal gespeichert. Lade Seite neu...');
+        setTimeout(() => window.location.reload(), 800);
+      } else {
+        localStorage.removeItem('thai_hasis_firebase_api_key');
+        setApiKeyToast('Lokaler Schlüssel entfernt. Lade Seite neu...');
+        setTimeout(() => window.location.reload(), 800);
+      }
+    } catch {
+      setApiKeyToast('Speichern fehlgeschlagen.');
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -285,6 +315,71 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#FF7A00]' : ''}`} />
               <span>{isRefreshing ? 'Gleicht ab...' : 'Jetzt abgleichen'}</span>
             </button>
+          </div>
+
+          {/* Firebase API Key Configuration Status */}
+          <div className="mt-3 pt-3 border-t border-[#323236]/60">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Key className="w-3.5 h-3.5 text-[#FF7A00]" />
+                <span className="text-xs font-semibold text-white">Firebase & Vercel API-Status</span>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                  isLiveFirebaseApiKeyConfigured
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {isLiveFirebaseApiKeyConfigured ? 'Live verbunden' : 'Vercel Env aktiv / Dev Modus'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-[#8E8E93] mt-1.5 leading-relaxed">
+              Auf Vercel nutzt das Deployment deine Umgebungsvariable <strong className="text-white">FIREBASEAPI</strong>. Im GitHub-Repository liegt kein Schlüssel mehr im Klartext.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowApiKeySettings((prev) => !prev)}
+              className="mt-2 text-[11px] text-[#FF7A00] hover:text-[#FFA040] flex items-center gap-1 cursor-pointer font-medium"
+            >
+              <span>
+                {showApiKeySettings ? 'Vorschau-Optionen ausblenden' : 'Vorschau-Schlüssel anpassen (optional)'}
+              </span>
+              {showApiKeySettings ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
+
+            {showApiKeySettings && (
+              <div className="mt-2.5 p-3 rounded-xl bg-[#141416] border border-[#2E2E32] space-y-2">
+                <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                  Falls du Live-Daten direkt in der AI-Studio-Vorschau nutzen willst, kannst du den neuen Schlüssel hier für diesen Browser hinterlegen. Er wird nur im lokalen Speicher abgelegt und <strong className="text-emerald-400">gelangt niemals zu GitHub</strong>:
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={localApiKeyInput}
+                    onChange={(e) => setLocalApiKeyInput(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="flex-1 bg-[#1C1C1E] border border-[#3A3A3D] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-[#71717A] focus:outline-none focus:border-[#FF7A00]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveLocalApiKey}
+                    className="px-3 py-1.5 bg-[#FF7A00] hover:bg-[#FF881A] text-black font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Speichern
+                  </button>
+                </div>
+                {apiKeyToast && (
+                  <p className="text-[10px] text-amber-300 font-medium">{apiKeyToast}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

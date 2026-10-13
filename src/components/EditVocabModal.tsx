@@ -14,21 +14,17 @@ import { speakThai } from '../utils/thaiAudio';
 interface EditVocabModalProps {
   vocab: Vocabulary | null;
   currentPhase?: number;
-  currentDePhase?: number;
-  currentThPhase?: number;
   isOpen: boolean;
   onClose: () => void;
   onSave: (id: string, updatedData: Partial<Omit<Vocabulary, 'id' | 'createdAt'>>) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
-  onUpdatePhase?: (vocabId: string, newPhase: number, targetDirection?: 'de_to_th' | 'th_to_de' | 'both') => Promise<void>;
+  onUpdatePhase?: (vocabId: string, newPhase: number) => Promise<void>;
   existingLessons: string[];
 }
 
 export const EditVocabModal: React.FC<EditVocabModalProps> = ({
   vocab,
   currentPhase,
-  currentDePhase,
-  currentThPhase,
   isOpen,
   onClose,
   onSave,
@@ -43,10 +39,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
   const [customLesson, setCustomLesson] = useState('');
   const [exampleThai, setExampleThai] = useState('');
   const [exampleGerman, setExampleGerman] = useState('');
-  
-  const [activeDirectionTab, setActiveDirectionTab] = useState<'both' | 'de_to_th' | 'th_to_de'>('both');
-  const [selectedDePhase, setSelectedDePhase] = useState<number>(currentDePhase || currentPhase || 1);
-  const [selectedThPhase, setSelectedThPhase] = useState<number>(currentThPhase || currentPhase || 1);
+  const [selectedPhase, setSelectedPhase] = useState<number>(currentPhase || 1);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -60,8 +53,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
       setRomanization(vocab.romanization || '');
       setExampleThai(vocab.exampleThai || '');
       setExampleGerman(vocab.exampleGerman || '');
-      setSelectedDePhase(currentDePhase || currentPhase || 1);
-      setSelectedThPhase(currentThPhase || currentPhase || 1);
+      setSelectedPhase(currentPhase || 1);
 
       const isKnownLesson = existingLessons.includes(vocab.lesson);
       if (isKnownLesson) {
@@ -74,7 +66,7 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
       setErrorMessage(null);
       setShowDeleteConfirm(false);
     }
-  }, [vocab, currentPhase, currentDePhase, currentThPhase, existingLessons]);
+  }, [vocab, currentPhase, existingLessons]);
 
   if (!isOpen || !vocab) return null;
 
@@ -108,15 +100,8 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
         exampleGerman: exampleGerman.trim() || undefined,
       });
 
-      if (onUpdatePhase) {
-        const initDe = currentDePhase || currentPhase || 1;
-        const initTh = currentThPhase || currentPhase || 1;
-        if (selectedDePhase !== initDe) {
-          await onUpdatePhase(vocab.id, selectedDePhase, 'de_to_th');
-        }
-        if (selectedThPhase !== initTh) {
-          await onUpdatePhase(vocab.id, selectedThPhase, 'th_to_de');
-        }
+      if (onUpdatePhase && selectedPhase !== currentPhase) {
+        await onUpdatePhase(vocab.id, selectedPhase);
       }
 
       onClose();
@@ -285,84 +270,27 @@ export const EditVocabModal: React.FC<EditVocabModalProps> = ({
             />
           </div>
 
-          {/* Phase bearbeiten (unabhängig für beide Richtungen) */}
+          {/* Phase bearbeiten */}
           <div className="bg-[#242426] rounded-2xl p-4 border border-[#323236]">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
                 Lernphase (Leitner 1–6)
               </label>
-              <div className="flex items-center gap-2 text-[11px] font-bold">
-                <span className="text-[#FFA040]">DE➔TH: P{selectedDePhase}</span>
-                <span className="text-[#8E8E93]">·</span>
-                <span className="text-[#38BDF8]">TH➔DE: P{selectedThPhase}</span>
-              </div>
+              <span className="text-[11px] font-bold text-[#FF7A00]">
+                Phase {selectedPhase}
+              </span>
             </div>
             <p className="text-[11px] text-[#A1A1AA] mb-3 leading-relaxed">
-              Beide Richtungen werden unabhängig voneinander gelernt. Wähle die Richtung, um ihre Phase einzustellen:
+              Wähle direkt die Phase, in der sich diese Vokabel in deinem persönlichen Leitner-System befinden soll:
             </p>
-
-            {/* Direction selector tabs */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#1C1C1E] rounded-xl border border-[#323236] mb-3 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setActiveDirectionTab('both')}
-                className={`py-1.5 rounded-lg transition-all ${
-                  activeDirectionTab === 'both'
-                    ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                    : 'text-[#8E8E93] hover:text-white'
-                }`}
-              >
-                Beide
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveDirectionTab('de_to_th')}
-                className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-                  activeDirectionTab === 'de_to_th'
-                    ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                    : 'text-[#8E8E93] hover:text-white'
-                }`}
-              >
-                <span>🇩🇪➔🇹🇭</span>
-                <span className="text-[10px] opacity-80">(P{selectedDePhase})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveDirectionTab('th_to_de')}
-                className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-                  activeDirectionTab === 'th_to_de'
-                    ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                    : 'text-[#8E8E93] hover:text-white'
-                }`}
-              >
-                <span>🇹🇭➔🇩🇪</span>
-                <span className="text-[10px] opacity-80">(P{selectedThPhase})</span>
-              </button>
-            </div>
-
             <div className="grid grid-cols-6 gap-1.5">
               {[1, 2, 3, 4, 5, 6].map((p) => {
-                const isSelected =
-                  activeDirectionTab === 'both'
-                    ? selectedDePhase === p && selectedThPhase === p
-                    : activeDirectionTab === 'de_to_th'
-                    ? selectedDePhase === p
-                    : selectedThPhase === p;
-
+                const isSelected = selectedPhase === p;
                 return (
                   <button
                     key={p}
                     type="button"
-                    onClick={() => {
-                      if (activeDirectionTab === 'both') {
-                        setSelectedDePhase(p);
-                        setSelectedThPhase(p);
-                      } else if (activeDirectionTab === 'de_to_th') {
-                        setSelectedDePhase(p);
-                      } else {
-                        setSelectedThPhase(p);
-                      }
-                    }}
+                    onClick={() => setSelectedPhase(p)}
                     className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                       isSelected
                         ? 'bg-[#FF7A00] text-black border-[#FF7A00] shadow-md scale-105'

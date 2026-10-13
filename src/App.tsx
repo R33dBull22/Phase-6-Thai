@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ActiveTab, Vocabulary, UserProgress, QueryDirection } from './types/vocab';
+import { ActiveTab, Vocabulary, UserProgress } from './types/vocab';
 import {
   fetchCommunityVocabularies,
   fetchUserProgress,
@@ -27,7 +27,7 @@ import { CreateView } from './components/CreateView';
 import { SettingsView } from './components/SettingsView';
 import { StudySession, StudyMode, StudyDirection, StudyInputMethod } from './components/StudySession';
 import { AuthModal } from './components/AuthModal';
-import { isCardDue, isAnyDirectionDue } from './utils/leitner';
+import { isCardDue } from './utils/leitner';
 
 function AppContent() {
   const { user, loading: authLoading } = useAuth();
@@ -39,7 +39,7 @@ function AppContent() {
 
   // Active study session state
   const [activeSession, setActiveSession] = useState<{
-    cards: { vocab: Vocabulary; progress?: UserProgress; direction?: QueryDirection }[];
+    cards: { vocab: Vocabulary; progress?: UserProgress }[];
     mode: StudyMode;
     direction: StudyDirection;
     inputMethod: StudyInputMethod;
@@ -210,24 +210,20 @@ function AppContent() {
     return Array.from(set);
   }, [vocabularies]);
 
-  // Due count for badge (cards due in at least one direction)
+  // Due count for badge
   const dueCount = useMemo(() => {
     return vocabularies.filter((v) => {
       const prog = progressMap[v.id];
-      return prog && isAnyDirectionDue(prog);
+      return prog && isCardDue(prog.nextReviewDate);
     }).length;
   }, [vocabularies, progressMap]);
 
-  // Answer handler in active study session (tracks direction independently)
-  const handleAnswerReview = async (
-    vocabId: string,
-    isCorrect: boolean,
-    direction: QueryDirection = 'de_to_th'
-  ): Promise<UserProgress> => {
+  // Answer handler in active study session
+  const handleAnswerReview = async (vocabId: string, isCorrect: boolean): Promise<UserProgress> => {
     if (!user) throw new Error('Nicht angemeldet');
     const userId = user.uid;
     const curProg = progressMap[vocabId];
-    const updated = await recordReviewResult(userId, vocabId, curProg, isCorrect, direction);
+    const updated = await recordReviewResult(userId, vocabId, curProg, isCorrect);
     setProgressMap((prev) => ({
       ...prev,
       [vocabId]: updated,
@@ -258,36 +254,20 @@ function AppContent() {
 
   // Import handler with phase support (phase applied ONLY to current user's progress)
   const handleImportVocabs = async (
-    items: (Omit<Vocabulary, 'id' | 'createdAt'> & {
-      phase?: number;
-      phaseDeToTh?: number;
-      phaseThToDe?: number;
-    })[]
+    items: (Omit<Vocabulary, 'id' | 'createdAt'> & { phase?: number })[]
   ): Promise<number> => {
     if (!user) return 0;
     const userId = user.uid;
     let count = 0;
-    const addedDeckItems: {
-      vocabId: string;
-      phase: number;
-      phaseDeToTh?: number;
-      phaseThToDe?: number;
-    }[] = [];
+    const addedDeckItems: { vocabId: string; phase: number }[] = [];
 
     for (const item of items) {
-      const { phase, phaseDeToTh, phaseThToDe, ...vocabData } = item;
+      const { phase, ...vocabData } = item;
       const created = await addVocabulary(vocabData, userId);
       setVocabularies((prev) => [created, ...prev]);
-
-      const basePhase = phase && phase >= 1 && phase <= 6 ? phase : 1;
-      const finalDe = phaseDeToTh && phaseDeToTh >= 1 && phaseDeToTh <= 6 ? phaseDeToTh : basePhase;
-      const finalTh = phaseThToDe && phaseThToDe >= 1 && phaseThToDe <= 6 ? phaseThToDe : basePhase;
-
       addedDeckItems.push({
         vocabId: created.id,
-        phase: Math.min(finalDe, finalTh),
-        phaseDeToTh: finalDe,
-        phaseThToDe: finalTh,
+        phase: phase && phase >= 1 && phase <= 6 ? phase : 1,
       });
       count++;
     }
@@ -402,16 +382,11 @@ function AppContent() {
     return vocabIds.length;
   };
 
-  // Update single vocabulary phase with directional support
-  const handleUpdateSinglePhase = async (
-    vocabId: string,
-    newPhase: number,
-    targetDirection: 'de_to_th' | 'th_to_de' | 'both' = 'both'
-  ) => {
+  // Update single vocabulary phase
+  const handleUpdateSinglePhase = async (vocabId: string, newPhase: number) => {
     if (!user) return;
     const userId = user.uid;
-    const curProg = progressMap[vocabId];
-    const updated = await updateVocabPhase(userId, vocabId, newPhase, targetDirection, curProg);
+    const updated = await updateVocabPhase(userId, vocabId, newPhase);
     setProgressMap((prev) => ({
       ...prev,
       [vocabId]: updated,
@@ -420,7 +395,7 @@ function AppContent() {
 
   // Start active study session
   const handleStartSession = (
-    cards: { vocab: Vocabulary; progress?: UserProgress; direction?: QueryDirection }[],
+    cards: { vocab: Vocabulary; progress?: UserProgress }[],
     mode: StudyMode,
     direction: StudyDirection,
     inputMethod?: StudyInputMethod

@@ -3,7 +3,45 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+// Read FIREBASEAPI from environment variables (e.g. Vercel env, local .env, or localStorage override)
+const getEnvOrLocalApiKey = (): string => {
+  if (typeof process !== 'undefined' && process.env?.FIREBASEAPI) {
+    return process.env.FIREBASEAPI;
+  }
+  if ((import.meta.env as any)?.FIREBASEAPI) {
+    return (import.meta.env as any).FIREBASEAPI;
+  }
+  if ((import.meta.env as any)?.VITE_FIREBASEAPI) {
+    return (import.meta.env as any).VITE_FIREBASEAPI;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const localKey = localStorage.getItem('thai_hasis_firebase_api_key');
+      if (localKey && localKey.trim()) return localKey.trim();
+    } catch {}
+  }
+  if (firebaseConfig.apiKey && firebaseConfig.apiKey.trim()) {
+    return firebaseConfig.apiKey.trim();
+  }
+  return '';
+};
+
+const rawApiKey = getEnvOrLocalApiKey();
+
+// Safe placeholder prevents Firebase SDK from throwing 'auth/invalid-api-key' at module import time
+// when running in AI Studio preview without local environment variable set.
+// On Vercel, the real key is injected via the FIREBASEAPI environment variable.
+const FALLBACK_DEV_KEY = 'AIzaSy_DEV_PREVIEW_KEY_SET_FIREBASEAPI_IN_VERCEL';
+export const isLiveFirebaseApiKeyConfigured = Boolean(rawApiKey && rawApiKey !== FALLBACK_DEV_KEY);
+
+const resolvedApiKey = rawApiKey || FALLBACK_DEV_KEY;
+
+const appConfig = {
+  ...firebaseConfig,
+  apiKey: resolvedApiKey,
+};
+
+const app = initializeApp(appConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 

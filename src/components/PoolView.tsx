@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
 import { speakThai } from '../utils/thaiAudio';
-import { PHASES, formatDueDate, isCardDue, getDirectionProgress, isAnyDirectionDue } from '../utils/leitner';
+import { PHASES, formatDueDate, isCardDue } from '../utils/leitner';
 import { EditVocabModal } from './EditVocabModal';
 
 interface PoolViewProps {
@@ -36,7 +36,7 @@ interface PoolViewProps {
   onMoveVocabs?: (vocabIds: string[], targetLesson: string) => Promise<void>;
   onStepBackLesson?: (lessonName: string) => Promise<number>;
   onResetVocabsPhase?: (vocabIds: string[]) => Promise<number>;
-  onUpdateSinglePhase?: (vocabId: string, newPhase: number, targetDirection?: 'de_to_th' | 'th_to_de' | 'both') => Promise<void>;
+  onUpdateSinglePhase?: (vocabId: string, newPhase: number) => Promise<void>;
   existingLessons?: string[];
 }
 
@@ -64,11 +64,11 @@ export const PoolView: React.FC<PoolViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [editingVocab, setEditingVocab] = useState<Vocabulary | null>(null);
 
-  // Due vocabs count (cards due in at least one direction)
+  // Due vocabs count
   const dueVocabsCount = useMemo(() => {
     return vocabularies.filter((v) => {
       const prog = progressMap[v.id];
-      return prog && isAnyDirectionDue(prog);
+      return prog && isCardDue(prog.nextReviewDate);
     }).length;
   }, [vocabularies, progressMap]);
 
@@ -114,7 +114,7 @@ export const PoolView: React.FC<PoolViewProps> = ({
       const inDeck = Boolean(progressMap[v.id]);
       if (filterMode === 'in_deck' && !inDeck) return;
       if (filterMode === 'not_in_deck' && inDeck) return;
-      if (filterMode === 'due' && (!inDeck || !isAnyDirectionDue(progressMap[v.id]))) return;
+      if (filterMode === 'due' && (!inDeck || !isCardDue(progressMap[v.id]?.nextReviewDate))) return;
 
       const lessonName = v.lesson || 'Allgemein';
       if (!map[lessonName]) map[lessonName] = [];
@@ -601,48 +601,29 @@ export const PoolView: React.FC<PoolViewProps> = ({
                               <Volume2 className="w-3.5 h-3.5" />
                             </button>
 
-                            {/* Phase pills if in deck (independent for both directions) */}
+                            {/* Phase pill if in deck */}
                             {inDeck ? (
                               <div className="flex flex-col items-end">
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white ${
+                                    PHASES[prog.phase]?.badgeBg || 'bg-gray-600'
+                                  }`}
+                                >
+                                  P{prog.phase}
+                                </span>
                                 {(() => {
-                                  const deProg = getDirectionProgress(prog, 'de_to_th');
-                                  const thProg = getDirectionProgress(prog, 'th_to_de');
-                                  const deDue = formatDueDate(deProg.nextReviewDate);
-                                  const thDue = formatDueDate(thProg.nextReviewDate);
-                                  const isAnyDue = deDue.isDue || thDue.isDue;
-
+                                  const dueInfo = formatDueDate(prog.nextReviewDate);
                                   return (
-                                    <>
-                                      <div className="flex items-center gap-1">
-                                        <span
-                                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold text-white ${
-                                            PHASES[deProg.phase]?.badgeBg || 'bg-gray-600'
-                                          }`}
-                                          title={`Deutsch ➔ Thai: Phase ${deProg.phase} (${deDue.label})`}
-                                        >
-                                          🇩🇪→🇹🇭 P{deProg.phase}
-                                        </span>
-                                        <span
-                                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold text-white ${
-                                            PHASES[thProg.phase]?.badgeBg || 'bg-gray-600'
-                                          }`}
-                                          title={`Thai ➔ Deutsch: Phase ${thProg.phase} (${thDue.label})`}
-                                        >
-                                          🇹🇭→🇩🇪 P{thProg.phase}
-                                        </span>
-                                      </div>
-
-                                      <span
-                                        className={`text-[9px] mt-0.5 font-medium whitespace-nowrap ${
-                                          isAnyDue
-                                            ? 'text-amber-400 font-semibold'
-                                            : 'text-[#8E8E93]'
-                                        }`}
-                                        title={`Nächste Abfrage: DE➔TH (${deDue.label}), TH➔DE (${thDue.label})`}
-                                      >
-                                        {isAnyDue ? 'Fällig' : deDue.daysDiff <= thDue.daysDiff ? deDue.label : thDue.label}
-                                      </span>
-                                    </>
+                                    <span
+                                      className={`text-[9px] mt-0.5 font-medium whitespace-nowrap ${
+                                        dueInfo.isDue
+                                          ? 'text-amber-400 font-semibold'
+                                          : 'text-[#8E8E93]'
+                                      }`}
+                                      title={`Nächste Abfrage: ${dueInfo.dateFormatted}`}
+                                    >
+                                      {dueInfo.label}
+                                    </span>
                                   );
                                 })()}
                               </div>
@@ -895,8 +876,6 @@ export const PoolView: React.FC<PoolViewProps> = ({
         <EditVocabModal
           vocab={editingVocab}
           currentPhase={progressMap[editingVocab.id]?.phase || 1}
-          currentDePhase={getDirectionProgress(progressMap[editingVocab.id], 'de_to_th').phase}
-          currentThPhase={getDirectionProgress(progressMap[editingVocab.id], 'th_to_de').phase}
           isOpen={Boolean(editingVocab)}
           onClose={() => setEditingVocab(null)}
           onSave={async (id, data) => {

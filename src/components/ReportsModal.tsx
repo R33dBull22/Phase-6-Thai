@@ -14,7 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { UserProgress, Vocabulary } from '../types/vocab';
-import { PHASES, formatDueDate, getDirectionProgress } from '../utils/leitner';
+import { PHASES, formatDueDate } from '../utils/leitner';
 import { speakThai } from '../utils/thaiAudio';
 
 interface ReportsModalProps {
@@ -33,7 +33,6 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
   const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'due' | 'future'>('all');
   const [searchFilter, setSearchFilter] = useState('');
-  const [selectedDirection, setSelectedDirection] = useState<'both' | 'de_to_th' | 'th_to_de'>('both');
 
   // Map vocabulary lookup by ID
   const vocabMap = useMemo(() => {
@@ -60,23 +59,8 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
       const vocab = vocabMap.get(p.vocabId);
       if (!vocab) return;
 
-      let ph = 1;
-      let reviewDate = p.nextReviewDate;
-
-      if (selectedDirection === 'de_to_th') {
-        const dir = getDirectionProgress(p, 'de_to_th');
-        ph = dir.phase;
-        reviewDate = dir.nextReviewDate;
-      } else if (selectedDirection === 'th_to_de') {
-        const dir = getDirectionProgress(p, 'th_to_de');
-        ph = dir.phase;
-        reviewDate = dir.nextReviewDate;
-      } else {
-        ph = Math.max(1, Math.min(6, p.phase || 1));
-        reviewDate = p.nextReviewDate;
-      }
-
-      const dueInfo = formatDueDate(reviewDate);
+      const ph = Math.max(1, Math.min(6, p.phase || 1));
+      const dueInfo = formatDueDate(p.nextReviewDate);
 
       map[ph].push({
         vocab,
@@ -88,14 +72,14 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
     // Sort items within each phase by nextReviewDate ascending (soonest due first)
     [1, 2, 3, 4, 5, 6].forEach((ph) => {
       map[ph].sort((a, b) => {
-        const timeA = new Date(a.dueInfo.dateFormatted || 0).getTime();
-        const timeB = new Date(b.dueInfo.dateFormatted || 0).getTime();
+        const timeA = new Date(a.progress.nextReviewDate || 0).getTime();
+        const timeB = new Date(b.progress.nextReviewDate || 0).getTime();
         return timeA - timeB;
       });
     });
 
     return map;
-  }, [progressMap, vocabMap, selectedDirection]);
+  }, [progressMap, vocabMap]);
 
   if (!isOpen) return null;
 
@@ -106,20 +90,11 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
   let dueTodayCount = 0;
 
   Object.values(progressMap).forEach((p) => {
-    if (selectedDirection === 'de_to_th') {
-      const dir = getDirectionProgress(p, 'de_to_th');
-      totalCorrect += dir.correctCount || 0;
-      totalIncorrect += dir.incorrectCount || 0;
-      if (formatDueDate(dir.nextReviewDate).isDue) dueTodayCount++;
-    } else if (selectedDirection === 'th_to_de') {
-      const dir = getDirectionProgress(p, 'th_to_de');
-      totalCorrect += dir.correctCount || 0;
-      totalIncorrect += dir.incorrectCount || 0;
-      if (formatDueDate(dir.nextReviewDate).isDue) dueTodayCount++;
-    } else {
-      totalCorrect += p.correctCount || 0;
-      totalIncorrect += p.incorrectCount || 0;
-      if (formatDueDate(p.nextReviewDate).isDue) dueTodayCount++;
+    totalCorrect += p.correctCount || 0;
+    totalIncorrect += p.incorrectCount || 0;
+    const dueInfo = formatDueDate(p.nextReviewDate);
+    if (dueInfo.isDue) {
+      dueTodayCount++;
     }
   });
 
@@ -151,45 +126,6 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
               className="w-8 h-8 rounded-full bg-[#242426] flex items-center justify-center text-[#8E8E93] hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Direction selector tabs (Unabhängige Richtungen) */}
-          <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#242426] rounded-2xl border border-[#323236] mb-4 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => setSelectedDirection('both')}
-              className={`py-2 rounded-xl transition-all ${
-                selectedDirection === 'both'
-                  ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                  : 'text-[#8E8E93] hover:text-white'
-              }`}
-            >
-              Gesamt (Beide)
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedDirection('de_to_th')}
-              className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
-                selectedDirection === 'de_to_th'
-                  ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                  : 'text-[#8E8E93] hover:text-white'
-              }`}
-            >
-              <span>🇩🇪 ➔ 🇹🇭</span>
-              <span className="text-[10px] opacity-80">DE➔TH</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedDirection('th_to_de')}
-              className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
-                selectedDirection === 'th_to_de'
-                  ? 'bg-[#FF7A00] text-black shadow-sm font-bold'
-                  : 'text-[#8E8E93] hover:text-white'
-              }`}
-            >
-              <span>🇹🇭 ➔ 🇩🇪</span>
-              <span className="text-[10px] opacity-80">TH➔DE</span>
             </button>
           </div>
 

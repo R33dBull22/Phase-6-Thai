@@ -9,13 +9,11 @@ import {
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
-import { Vocabulary, UserProgress, QueryDirection } from '../types/vocab';
-import { isCardDue, isDirectionDue, getDirectionProgress } from '../utils/leitner';
+import { Vocabulary, UserProgress } from '../types/vocab';
+import { isCardDue } from '../utils/leitner';
 import { ReportsModal } from './ReportsModal';
 import { StudySummaryModal } from './StudySummaryModal';
-import { StudyMode, StudyDirection, StudyInputMethod, StudyCardItem } from './StudySession';
-import watArunJpg from '../assets/images/wat_arun_bangkok.jpg';
-import watArunWebp from '../assets/images/wat_arun_bangkok.webp';
+import { StudyMode, StudyDirection, StudyInputMethod } from './StudySession';
 
 interface LearnViewProps {
   vocabularies: Vocabulary[];
@@ -29,7 +27,7 @@ interface LearnViewProps {
     inputMethod: StudyInputMethod
   ) => void;
   onStartSession: (
-    cards: StudyCardItem[],
+    cards: { vocab: Vocabulary; progress?: UserProgress }[],
     mode: StudyMode,
     direction: StudyDirection,
     inputMethod?: StudyInputMethod
@@ -50,73 +48,37 @@ export const LearnView: React.FC<LearnViewProps> = ({
   onNavigateCreate,
 }) => {
   const [showReports, setShowReports] = useState(false);
-  const [customizeModalCards, setCustomizeModalCards] = useState<StudyCardItem[] | null>(null);
+  const [customizeModalCards, setCustomizeModalCards] = useState<
+    { vocab: Vocabulary; progress?: UserProgress }[] | null
+  >(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Cards in deck
   const deckVocabs = vocabularies.filter((v) => progressMap[v.id]);
 
-  // Due cards: each direction is evaluated independently!
-  const dueCards: StudyCardItem[] = [];
-  deckVocabs.forEach((v) => {
-    const prog = progressMap[v.id];
-    if (!prog) return;
+  // Due cards (strictly due today or overdue based on Leitner intervals)
+  const dueCards = deckVocabs
+    .filter((v) => {
+      const prog = progressMap[v.id];
+      return isCardDue(prog?.nextReviewDate || '');
+    })
+    .map((v) => ({ vocab: v, progress: progressMap[v.id] }));
 
-    if (studyDirection === 'de_to_th') {
-      if (isDirectionDue(prog, 'de_to_th')) {
-        dueCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
-      }
-    } else if (studyDirection === 'th_to_de') {
-      if (isDirectionDue(prog, 'th_to_de')) {
-        dueCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
-      }
-    } else {
-      // Both directions: check both independently
-      if (isDirectionDue(prog, 'de_to_th')) {
-        dueCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
-      }
-      if (isDirectionDue(prog, 'th_to_de')) {
-        dueCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
-      }
-    }
-  });
-
-  // New vocabularies: In deck, in Phase 1 for the tested direction, never reviewed yet or streak = 0
-  const newVocabCards: StudyCardItem[] = [];
-  deckVocabs.forEach((v) => {
-    const prog = progressMap[v.id];
-    if (!prog) return;
-
-    if (studyDirection === 'de_to_th' || studyDirection === 'both') {
-      const deProg = getDirectionProgress(prog, 'de_to_th');
-      if (deProg.phase === 1 && (!deProg.lastReviewedAt || deProg.streak === 0) && isDirectionDue(prog, 'de_to_th')) {
-        newVocabCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
-      }
-    }
-    if (studyDirection === 'th_to_de' || studyDirection === 'both') {
-      const thProg = getDirectionProgress(prog, 'th_to_de');
-      if (thProg.phase === 1 && (!thProg.lastReviewedAt || thProg.streak === 0) && isDirectionDue(prog, 'th_to_de')) {
-        newVocabCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
-      }
-    }
-  });
+  // New vocabularies: In deck, in Phase 1, never reviewed yet or streak = 0
+  const newVocabCards = deckVocabs
+    .filter((v) => {
+      const prog = progressMap[v.id];
+      if (!prog) return false;
+      const isNew = prog.phase === 1 && (!prog.lastReviewedAt || prog.streak === 0);
+      return isNew && isCardDue(prog.nextReviewDate);
+    })
+    .map((v) => ({ vocab: v, progress: progressMap[v.id] }));
 
   // All cards in deck for voluntary practice
-  const allDeckCards: StudyCardItem[] = [];
-  deckVocabs.forEach((v, idx) => {
-    const prog = progressMap[v.id];
-    if (studyDirection === 'de_to_th') {
-      allDeckCards.push({ vocab: v, progress: prog, direction: 'de_to_th' });
-    } else if (studyDirection === 'th_to_de') {
-      allDeckCards.push({ vocab: v, progress: prog, direction: 'th_to_de' });
-    } else {
-      allDeckCards.push({
-        vocab: v,
-        progress: prog,
-        direction: idx % 2 === 0 ? 'de_to_th' : 'th_to_de',
-      });
-    }
-  });
+  const allDeckCards = deckVocabs.map((v) => ({
+    vocab: v,
+    progress: progressMap[v.id],
+  }));
 
   const dueCount = dueCards.length;
   const newCount = newVocabCards.length;
@@ -128,7 +90,7 @@ export const LearnView: React.FC<LearnViewProps> = ({
   };
 
   // Direct start using saved preferences - NO dialog interruption!
-  const handleDirectStart = (cards: StudyCardItem[]) => {
+  const handleDirectStart = (cards: { vocab: Vocabulary; progress?: UserProgress }[]) => {
     if (cards.length === 0) {
       if (totalDeckCount === 0) {
         onNavigatePool();
@@ -178,23 +140,16 @@ export const LearnView: React.FC<LearnViewProps> = ({
         <div className="grid grid-cols-12 gap-3 mb-5">
           {/* Left Course Card */}
           <div className="col-span-7 flex flex-col">
-            <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] shadow-lg flex items-center justify-center group isolate transform-gpu">
-              {/* Background Wat Arun image optimized for Safari and iOS */}
-              <picture className="absolute inset-0 w-full h-full pointer-events-none">
-                <source srcSet={watArunWebp} type="image/webp" />
-                <img
-                  src={watArunJpg}
-                  alt="Wat Arun Bangkok"
-                  loading="eager"
-                  decoding="async"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = '/images/wat_arun_bangkok.jpg';
-                  }}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                />
-              </picture>
+            <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden bg-gradient-to-br from-[#2E2E32] to-[#1C1C1E] border border-[#3A3A3D] shadow-lg flex items-center justify-center group">
+              {/* Background Wat Arun image */}
+              <img
+                src="/src/assets/images/wat_arun_bangkok_1791796492408.jpg"
+                alt="Wat Arun Bangkok"
+                referrerPolicy="no-referrer"
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
               {/* Gradient overlays for optimal readability */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/35 pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/35" />
 
               <div className="text-center p-4 relative z-10">
                 <span className="text-4xl block mb-2 drop-shadow-md">🇹🇭</span>
