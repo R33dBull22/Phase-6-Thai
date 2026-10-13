@@ -1,7 +1,8 @@
 import { Vocabulary, UserProgress } from '../types/vocab';
+import { getDirectionProgress } from '../utils/leitner';
 
 export interface ExportData {
-  vocabularies: (Vocabulary & { phase?: number })[];
+  vocabularies: (Vocabulary & { phase?: number; phaseDeToTh?: number; phaseThToDe?: number })[];
   progress?: Record<string, UserProgress>;
   exportedAt: string;
   formatVersion: string;
@@ -39,6 +40,8 @@ export function exportToCSV(
     'Beispielsatz Thai',
     'Beispielsatz Deutsch',
     'Phase (1-6)',
+    'Phase DE->TH',
+    'Phase TH->DE',
     'Nächste Wiederholung',
   ];
 
@@ -51,6 +54,9 @@ export function exportToCSV(
   const rows = vocabularies.map((v) => {
     const prog = userProgress ? userProgress[v.id] : undefined;
     const currentPhase = prog ? prog.phase : 1;
+    const dePhase = prog ? getDirectionProgress(prog, 'de_to_th').phase : 1;
+    const thPhase = prog ? getDirectionProgress(prog, 'th_to_de').phase : 1;
+
     return [
       escapeCSV(v.german),
       escapeCSV(v.thai),
@@ -59,6 +65,8 @@ export function exportToCSV(
       escapeCSV(v.exampleThai),
       escapeCSV(v.exampleGerman),
       escapeCSV(String(currentPhase)),
+      escapeCSV(String(dePhase)),
+      escapeCSV(String(thPhase)),
       escapeCSV(prog?.nextReviewDate || ''),
     ].join(';');
   });
@@ -122,6 +130,8 @@ export interface ParsedCSVRow {
   exampleThai?: string;
   exampleGerman?: string;
   phase?: number;
+  phaseDeToTh?: number;
+  phaseThToDe?: number;
   isValid: boolean;
   error?: string;
 }
@@ -182,11 +192,23 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
     firstCols.some((c) => c.includes('thai')) ||
     firstCols.some((c) => c.includes('lektion') || c.includes('lesson'));
 
-  // Look for phase column in header
+  // Look for phase columns in header
   let phaseColIndex = -1;
+  let phaseDeColIndex = -1;
+  let phaseThColIndex = -1;
+
   if (isHeader) {
+    phaseDeColIndex = firstCols.findIndex(
+      (c) => (c.includes('de') && (c.includes('th') || c.includes('thai'))) || c.includes('de->th') || c.includes('de➔th')
+    );
+    phaseThColIndex = firstCols.findIndex(
+      (c) => (c.includes('th') && (c.includes('de') || c.includes('deutsch'))) || c.includes('th->de') || c.includes('th➔de')
+    );
     phaseColIndex = firstCols.findIndex(
-      (c) => c.includes('phase') || c.includes('stufe') || c.includes('leitner')
+      (c) =>
+        (c.includes('phase') || c.includes('stufe') || c.includes('leitner')) &&
+        c !== firstCols[phaseDeColIndex] &&
+        c !== firstCols[phaseThColIndex]
     );
   }
 
@@ -205,7 +227,7 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
     const exampleThai = cols[4] || '';
     const exampleGerman = cols[5] || '';
 
-    // Check for phase in identified header column, column 6, or 5-column short format
+    // Check for general phase
     let parsedPhase: number | undefined;
     if (phaseColIndex !== -1 && cols[phaseColIndex]) {
       const digitMatch = cols[phaseColIndex].match(/[1-6]/);
@@ -217,6 +239,27 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
       parsedPhase = parseInt(cols[4].trim(), 10);
     }
 
+    // Check for directional phases
+    let parsedDePhase: number | undefined;
+    let parsedThPhase: number | undefined;
+    if (phaseDeColIndex !== -1 && cols[phaseDeColIndex]) {
+      const digitMatch = cols[phaseDeColIndex].match(/[1-6]/);
+      if (digitMatch) parsedDePhase = parseInt(digitMatch[0], 10);
+    } else if (cols[7] && /^[1-6]$/.test(cols[7].trim())) {
+      parsedDePhase = parseInt(cols[7].trim(), 10);
+    }
+
+    if (phaseThColIndex !== -1 && cols[phaseThColIndex]) {
+      const digitMatch = cols[phaseThColIndex].match(/[1-6]/);
+      if (digitMatch) parsedThPhase = parseInt(digitMatch[0], 10);
+    } else if (cols[8] && /^[1-6]$/.test(cols[8].trim())) {
+      parsedThPhase = parseInt(cols[8].trim(), 10);
+    }
+
+    const basePhase = parsedPhase || 1;
+    const finalDePhase = parsedDePhase || basePhase;
+    const finalThPhase = parsedThPhase || basePhase;
+
     const isValid = Boolean(german.trim() && thai.trim());
     result.push({
       german,
@@ -225,7 +268,9 @@ export function parseCSVContent(text: string): ParsedCSVRow[] {
       lesson: lesson.trim() || 'Importierte Vokabeln',
       exampleThai,
       exampleGerman,
-      phase: parsedPhase || 1,
+      phase: Math.min(finalDePhase, finalThPhase),
+      phaseDeToTh: finalDePhase,
+      phaseThToDe: finalThPhase,
       isValid,
       error: !isValid ? 'Deutsch und Thai-Feld dürfen nicht leer sein' : undefined,
     });

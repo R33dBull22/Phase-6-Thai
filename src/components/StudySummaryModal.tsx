@@ -8,10 +8,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Vocabulary, UserProgress } from '../types/vocab';
-import { StudyMode, StudyDirection, StudyInputMethod } from './StudySession';
+import { StudyMode, StudyDirection, StudyInputMethod, StudyCardItem } from './StudySession';
 
 interface StudySummaryModalProps {
-  cardsToStudy: { vocab: Vocabulary; progress?: UserProgress }[];
+  cardsToStudy: StudyCardItem[];
   onBack: () => void;
   initialMode?: StudyMode;
   initialDirection?: StudyDirection;

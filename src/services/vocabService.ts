@@ -10,12 +10,35 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import { Vocabulary, UserProgress, DeletedVocabEntry } from '../types/vocab';
+import { Vocabulary, UserProgress, DeletedVocabEntry, DirectionProgress, QueryDirection } from '../types/vocab';
 import { STARTER_VOCABULARY } from '../data/initialVocab';
-import { calculateNextReviewDate, calculateResetReviewDate } from '../utils/leitner';
+import { calculateNextReviewDate, calculateResetReviewDate, getDirectionProgress } from '../utils/leitner';
 
 const VOCAB_COLLECTION = 'vocabularies';
 const PROGRESS_COLLECTION = 'user_progress';
+
+/**
+ * Recursively strips undefined values so that Firestore's setDoc/updateDoc/batch
+ * operations never fail due to unsupported undefined values.
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
 
 // Local storage keys for offline persistence & caching
 const LOCAL_VOCAB_KEY = 'thai_hasis_vocabularies_v1';
@@ -271,6 +294,16 @@ export async function fetchUserProgress(userId: string): Promise<Record<string, 
     const snap = await getDocs(q);
     snap.forEach((d) => {
       const p = d.data() as UserProgress;
+      const localProg = result[p.vocabId];
+      // If local progress was updated more recently than the Firestore doc, keep local and sync to Firestore
+      if (localProg?.updatedAt && p.updatedAt) {
+        const localTime = new Date(localProg.updatedAt).getTime();
+        const remoteTime = new Date(p.updatedAt).getTime();
+        if (localTime > remoteTime) {
+          setDoc(doc(db, PROGRESS_COLLECTION, d.id), sanitizeForFirestore(localProg)).catch(() => {});
+          return;
+        }
+      }
       result[p.vocabId] = { ...p, id: d.id };
     });
 
@@ -582,17 +615,26 @@ export async function addVocabToUserDeck(
   // When added or imported into a phase, card is treated as newly arrived in that phase:
   // its review is scheduled according to the phase interval (not immediately due)
   const nextReviewDate = calculateNextReviewDate(phase);
+  const dirProg: DirectionProgress = {
+    phase,
+    nextReviewDate,
+    streak: phase > 1 ? phase - 1 : 0,
+    correctCount: phase > 1 ? phase - 1 : 0,
+    incorrectCount: 0,
+  };
+
   const progress: UserProgress = {
     id,
     userId,
     vocabId,
     phase,
     nextReviewDate,
-    lastReviewedAt: undefined,
     streak: phase > 1 ? phase - 1 : 0,
     correctCount: phase > 1 ? phase - 1 : 0,
     incorrectCount: 0,
     updatedAt: now,
+    deToTh: { ...dirProg },
+    thToDe: { ...dirProg },
   };
 
   // Save to local cache
@@ -606,7 +648,7 @@ export async function addVocabToUserDeck(
 
   // Sync to Firestore
   try {
-    await setDoc(doc(db, PROGRESS_COLLECTION, id), progress);
+    await setDoc(doc(db, PROGRESS_COLLECTION, id), sanitizeForFirestore(progress));
   } catch (error) {
     console.warn('Firestore set progress error (fallback to local):', error);
   }
@@ -614,32 +656,81 @@ export async function addVocabToUserDeck(
   return progress;
 }
 
-export type DeckItemInput = string | { vocabId: string; phase?: number };
+export type DeckItemInput =
+  | string
+  | { vocabId: string; phase?: number; phaseDeToTh?: number; phaseThToDe?: number };
 
 /**
- * Explicitly update the Leitner phase of a single vocabulary item for a user
+ * Explicitly update the Leitner phase of a single vocabulary item for a user.
+ * Supports updating a specific direction ('de_to_th' or 'th_to_de') or both ('both').
  */
 export async function updateVocabPhase(
   userId: string,
   vocabId: string,
-  targetPhase: number
+  targetPhase: number,
+  targetDirection: 'de_to_th' | 'th_to_de' | 'both' = 'both',
+  currentProgress?: UserProgress
 ): Promise<UserProgress> {
-  const phase = Math.max(1, Math.min(6, targetPhase));
+  const newPhase = Math.max(1, Math.min(6, targetPhase));
   const id = `${userId}_${vocabId}`;
   const now = new Date().toISOString();
-  const nextReviewDate = phase > 1 ? calculateNextReviewDate(phase) : now;
+  const nextReviewDate = newPhase > 1 ? calculateNextReviewDate(newPhase) : now;
+
+  // Retrieve current directional progress if available, with fallback to local storage
+  let cur = currentProgress;
+  if (!cur) {
+    try {
+      const cached = localStorage.getItem(`${LOCAL_PROGRESS_KEY}_${userId}`);
+      if (cached) {
+        const map = JSON.parse(cached);
+        cur = map[vocabId];
+      }
+    } catch {}
+  }
+
+  const existingDeToTh = getDirectionProgress(cur, 'de_to_th');
+  const existingThToDe = getDirectionProgress(cur, 'th_to_de');
+
+  let updatedDeToTh: DirectionProgress = existingDeToTh;
+  let updatedThToDe: DirectionProgress = existingThToDe;
+
+  const targetDirProg: DirectionProgress = {
+    phase: newPhase,
+    nextReviewDate,
+    streak: newPhase > 1 ? newPhase - 1 : 0,
+    correctCount: newPhase > 1 ? newPhase - 1 : 0,
+    incorrectCount: 0,
+    ...(cur?.lastReviewedAt ? { lastReviewedAt: cur.lastReviewedAt } : {}),
+  };
+
+  if (targetDirection === 'de_to_th') {
+    updatedDeToTh = targetDirProg;
+  } else if (targetDirection === 'th_to_de') {
+    updatedThToDe = targetDirProg;
+  } else {
+    updatedDeToTh = { ...targetDirProg };
+    updatedThToDe = { ...targetDirProg };
+  }
+
+  const combinedPhase = Math.min(updatedDeToTh.phase, updatedThToDe.phase);
+  const combinedNextReviewDate =
+    new Date(updatedDeToTh.nextReviewDate).getTime() <= new Date(updatedThToDe.nextReviewDate).getTime()
+      ? updatedDeToTh.nextReviewDate
+      : updatedThToDe.nextReviewDate;
 
   const progress: UserProgress = {
     id,
     userId,
     vocabId,
-    phase,
-    nextReviewDate,
-    lastReviewedAt: undefined,
-    streak: phase > 1 ? phase - 1 : 0,
-    correctCount: phase > 1 ? phase - 1 : 0,
-    incorrectCount: 0,
+    phase: combinedPhase,
+    nextReviewDate: combinedNextReviewDate,
+    streak: combinedPhase > 1 ? combinedPhase - 1 : 0,
+    correctCount: cur?.correctCount || (combinedPhase > 1 ? combinedPhase - 1 : 0),
+    incorrectCount: cur?.incorrectCount || 0,
     updatedAt: now,
+    deToTh: updatedDeToTh,
+    thToDe: updatedThToDe,
+    ...(cur?.lastReviewedAt ? { lastReviewedAt: cur.lastReviewedAt } : {}),
   };
 
   // 1. Local update
@@ -653,7 +744,7 @@ export async function updateVocabPhase(
 
   // 2. Firestore update
   try {
-    await setDoc(doc(db, PROGRESS_COLLECTION, id), progress);
+    await setDoc(doc(db, PROGRESS_COLLECTION, id), sanitizeForFirestore(progress));
   } catch (err) {
     console.warn('Error updating vocab phase in Firestore:', err);
   }
@@ -672,6 +763,14 @@ export async function resetVocabsToPhaseOne(
   const now = new Date().toISOString();
   const updatedMap: Record<string, UserProgress> = {};
 
+  const dirProg1: DirectionProgress = {
+    phase: 1,
+    nextReviewDate: now,
+    streak: 0,
+    correctCount: 0,
+    incorrectCount: 0,
+  };
+
   // Local cache update
   try {
     const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
@@ -685,11 +784,12 @@ export async function resetVocabsToPhaseOne(
         vocabId: vId,
         phase: 1,
         nextReviewDate: now,
-        lastReviewedAt: undefined,
         streak: 0,
         correctCount: 0,
         incorrectCount: 0,
         updatedAt: now,
+        deToTh: { ...dirProg1 },
+        thToDe: { ...dirProg1 },
       };
       map[vId] = p;
       updatedMap[vId] = p;
@@ -703,17 +803,10 @@ export async function resetVocabsToPhaseOne(
     for (const vId of vocabIds) {
       const id = `${userId}_${vId}`;
       const ref = doc(db, PROGRESS_COLLECTION, id);
-      batch.set(ref, {
-        id,
-        userId,
-        vocabId: vId,
-        phase: 1,
-        nextReviewDate: now,
-        streak: 0,
-        correctCount: 0,
-        incorrectCount: 0,
-        updatedAt: now,
-      });
+      const p = updatedMap[vId];
+      if (p) {
+        batch.set(ref, sanitizeForFirestore(p));
+      }
     }
     await batch.commit();
   } catch (err) {
@@ -746,25 +839,48 @@ export async function stepBackLessonPhase(
 
     for (const vId of lessonVocabIds) {
       const existing = currentProgressMap[vId] || map[vId];
-      let newPhase = 1;
-      let nextReviewDate = now;
+      const existingDe = getDirectionProgress(existing, 'de_to_th');
+      const existingTh = getDirectionProgress(existing, 'th_to_de');
 
-      if (existing) {
-        newPhase = Math.max(1, existing.phase - 1);
-        nextReviewDate = newPhase > 1 ? calculateNextReviewDate(newPhase) : now;
-      }
+      const newDePhase = Math.max(1, existingDe.phase - 1);
+      const newThPhase = Math.max(1, existingTh.phase - 1);
+      const deNextReview = newDePhase > 1 ? calculateNextReviewDate(newDePhase) : now;
+      const thNextReview = newThPhase > 1 ? calculateNextReviewDate(newThPhase) : now;
+
+      const newDeToTh: DirectionProgress = {
+        phase: newDePhase,
+        nextReviewDate: deNextReview,
+        lastReviewedAt: existingDe.lastReviewedAt,
+        streak: newDePhase > 1 ? newDePhase - 1 : 0,
+        correctCount: existingDe.correctCount,
+        incorrectCount: existingDe.incorrectCount,
+      };
+      const newThToDe: DirectionProgress = {
+        phase: newThPhase,
+        nextReviewDate: thNextReview,
+        lastReviewedAt: existingTh.lastReviewedAt,
+        streak: newThPhase > 1 ? newThPhase - 1 : 0,
+        correctCount: existingTh.correctCount,
+        incorrectCount: existingTh.incorrectCount,
+      };
+
+      const combinedPhase = Math.min(newDePhase, newThPhase);
+      const combinedNextReview =
+        new Date(deNextReview).getTime() <= new Date(thNextReview).getTime() ? deNextReview : thNextReview;
 
       const p: UserProgress = {
         id: `${userId}_${vId}`,
         userId,
         vocabId: vId,
-        phase: newPhase,
-        nextReviewDate,
+        phase: combinedPhase,
+        nextReviewDate: combinedNextReview,
         lastReviewedAt: existing?.lastReviewedAt,
-        streak: newPhase > 1 ? newPhase - 1 : 0,
+        streak: combinedPhase > 1 ? combinedPhase - 1 : 0,
         correctCount: existing?.correctCount || 0,
         incorrectCount: existing?.incorrectCount || 0,
         updatedAt: now,
+        deToTh: newDeToTh,
+        thToDe: newThToDe,
       };
       map[vId] = p;
       updatedMap[vId] = p;
@@ -777,17 +893,7 @@ export async function stepBackLessonPhase(
     const batch = writeBatch(db);
     for (const [vId, p] of Object.entries(updatedMap)) {
       const ref = doc(db, PROGRESS_COLLECTION, p.id);
-      batch.set(ref, {
-        id: p.id,
-        userId: p.userId,
-        vocabId: p.vocabId,
-        phase: p.phase,
-        nextReviewDate: p.nextReviewDate,
-        streak: p.streak,
-        correctCount: p.correctCount,
-        incorrectCount: p.incorrectCount,
-        updatedAt: p.updatedAt,
-      });
+      batch.set(ref, sanitizeForFirestore(p));
     }
     await batch.commit();
   } catch (err) {
@@ -808,10 +914,12 @@ export async function addBatchToUserDeck(
   const now = new Date().toISOString();
 
   // Normalize inputs
-  const normalized: { vocabId: string; phase: number }[] = items.map((it) => {
-    if (typeof it === 'string') return { vocabId: it, phase: 1 };
+  const normalized: { vocabId: string; phase: number; phaseDeToTh: number; phaseThToDe: number }[] = items.map((it) => {
+    if (typeof it === 'string') return { vocabId: it, phase: 1, phaseDeToTh: 1, phaseThToDe: 1 };
     const p = it.phase && it.phase >= 1 && it.phase <= 6 ? it.phase : 1;
-    return { vocabId: it.vocabId, phase: p };
+    const pDe = it.phaseDeToTh && it.phaseDeToTh >= 1 && it.phaseDeToTh <= 6 ? it.phaseDeToTh : p;
+    const pTh = it.phaseThToDe && it.phaseThToDe >= 1 && it.phaseThToDe <= 6 ? it.phaseThToDe : p;
+    return { vocabId: it.vocabId, phase: Math.min(pDe, pTh), phaseDeToTh: pDe, phaseThToDe: pTh };
   });
 
   // Save to local cache
@@ -819,19 +927,40 @@ export async function addBatchToUserDeck(
     const key = `${LOCAL_PROGRESS_KEY}_${userId}`;
     const cached = localStorage.getItem(key) || localStorage.getItem(`${LEGACY_PROGRESS_KEY}_${userId}`);
     const map = cached ? JSON.parse(cached) : {};
-    for (const { vocabId, phase } of normalized) {
-      // Card is treated as newly arrived in this phase: review is scheduled according to phase interval
-      const nextReviewDate = calculateNextReviewDate(phase);
+    for (const { vocabId, phase, phaseDeToTh, phaseThToDe } of normalized) {
+      const deNextReview = calculateNextReviewDate(phaseDeToTh);
+      const thNextReview = calculateNextReviewDate(phaseThToDe);
+      const combinedReview =
+        new Date(deNextReview).getTime() <= new Date(thNextReview).getTime() ? deNextReview : thNextReview;
+
+      const deDirProg: DirectionProgress = {
+        phase: phaseDeToTh,
+        nextReviewDate: deNextReview,
+        streak: phaseDeToTh > 1 ? phaseDeToTh - 1 : 0,
+        correctCount: phaseDeToTh > 1 ? phaseDeToTh - 1 : 0,
+        incorrectCount: 0,
+      };
+
+      const thDirProg: DirectionProgress = {
+        phase: phaseThToDe,
+        nextReviewDate: thNextReview,
+        streak: phaseThToDe > 1 ? phaseThToDe - 1 : 0,
+        correctCount: phaseThToDe > 1 ? phaseThToDe - 1 : 0,
+        incorrectCount: 0,
+      };
+
       map[vocabId] = {
         id: `${userId}_${vocabId}`,
         userId,
         vocabId,
         phase,
-        nextReviewDate,
+        nextReviewDate: combinedReview,
         streak: phase > 1 ? phase - 1 : 0,
         correctCount: phase > 1 ? phase - 1 : 0,
         incorrectCount: 0,
         updatedAt: now,
+        deToTh: deDirProg,
+        thToDe: thDirProg,
       };
     }
     localStorage.setItem(key, JSON.stringify(map));
@@ -840,21 +969,43 @@ export async function addBatchToUserDeck(
   // Sync batch to Firestore
   try {
     const batch = writeBatch(db);
-    for (const { vocabId, phase } of normalized) {
+    for (const { vocabId, phase, phaseDeToTh, phaseThToDe } of normalized) {
       const id = `${userId}_${vocabId}`;
       const ref = doc(db, PROGRESS_COLLECTION, id);
-      const nextReviewDate = calculateNextReviewDate(phase);
-      batch.set(ref, {
+      const deNextReview = calculateNextReviewDate(phaseDeToTh);
+      const thNextReview = calculateNextReviewDate(phaseThToDe);
+      const combinedReview =
+        new Date(deNextReview).getTime() <= new Date(thNextReview).getTime() ? deNextReview : thNextReview;
+
+      const deDirProg: DirectionProgress = {
+        phase: phaseDeToTh,
+        nextReviewDate: deNextReview,
+        streak: phaseDeToTh > 1 ? phaseDeToTh - 1 : 0,
+        correctCount: phaseDeToTh > 1 ? phaseDeToTh - 1 : 0,
+        incorrectCount: 0,
+      };
+
+      const thDirProg: DirectionProgress = {
+        phase: phaseThToDe,
+        nextReviewDate: thNextReview,
+        streak: phaseThToDe > 1 ? phaseThToDe - 1 : 0,
+        correctCount: phaseThToDe > 1 ? phaseThToDe - 1 : 0,
+        incorrectCount: 0,
+      };
+
+      batch.set(ref, sanitizeForFirestore({
         id,
         userId,
         vocabId,
         phase,
-        nextReviewDate,
+        nextReviewDate: combinedReview,
         streak: phase > 1 ? phase - 1 : 0,
         correctCount: phase > 1 ? phase - 1 : 0,
         incorrectCount: 0,
         updatedAt: now,
-      });
+        deToTh: deDirProg,
+        thToDe: thDirProg,
+      }));
     }
     await batch.commit();
   } catch (error) {
@@ -1021,38 +1172,67 @@ export async function removeVocabFromUserDeck(userId: string, vocabId: string): 
 
 /**
  * Record Leitner spaced repetition review answer (Phase 1-6)
+ * Supports independent progression for both directions ('de_to_th' and 'th_to_de').
  */
 export async function recordReviewResult(
   userId: string,
   vocabId: string,
   currentProgress: UserProgress | undefined,
-  isCorrect: boolean
+  isCorrect: boolean,
+  direction: QueryDirection = 'de_to_th'
 ): Promise<UserProgress> {
-  const curPhase = currentProgress ? currentProgress.phase : 1;
   const now = new Date().toISOString();
 
-  let nextPhase: number;
-  let nextReviewDate: string;
+  // Retrieve directional progress for both directions
+  const curDirProg = getDirectionProgress(currentProgress, direction);
+  const otherDirection: QueryDirection = direction === 'de_to_th' ? 'th_to_de' : 'de_to_th';
+  const otherDirProg = getDirectionProgress(currentProgress, otherDirection);
+
+  let nextDirPhase: number;
+  let nextDirReviewDate: string;
 
   if (isCorrect) {
-    nextPhase = Math.min(6, curPhase + 1);
-    nextReviewDate = calculateNextReviewDate(nextPhase);
+    nextDirPhase = Math.min(6, curDirProg.phase + 1);
+    nextDirReviewDate = calculateNextReviewDate(nextDirPhase);
   } else {
-    nextPhase = 1;
-    nextReviewDate = calculateResetReviewDate();
+    nextDirPhase = 1;
+    nextDirReviewDate = calculateResetReviewDate();
   }
+
+  const updatedTargetDir: DirectionProgress = {
+    phase: nextDirPhase,
+    nextReviewDate: nextDirReviewDate,
+    lastReviewedAt: now,
+    streak: isCorrect ? (curDirProg.streak || 0) + 1 : 0,
+    correctCount: (curDirProg.correctCount || 0) + (isCorrect ? 1 : 0),
+    incorrectCount: (curDirProg.incorrectCount || 0) + (!isCorrect ? 1 : 0),
+  };
+
+  const updatedDeToTh = direction === 'de_to_th' ? updatedTargetDir : otherDirProg;
+  const updatedThToDe = direction === 'th_to_de' ? updatedTargetDir : otherDirProg;
+
+  // The overall phase reflects the minimum mastered phase between both directions
+  const combinedPhase = Math.min(updatedDeToTh.phase, updatedThToDe.phase);
+
+  // Overall next review date is the earlier of the two
+  const combinedNextReviewDate =
+    new Date(updatedDeToTh.nextReviewDate).getTime() <= new Date(updatedThToDe.nextReviewDate).getTime()
+      ? updatedDeToTh.nextReviewDate
+      : updatedThToDe.nextReviewDate;
 
   const updated: UserProgress = {
     id: `${userId}_${vocabId}`,
     userId,
     vocabId,
-    phase: nextPhase,
-    nextReviewDate,
+    phase: combinedPhase,
+    nextReviewDate: combinedNextReviewDate,
     lastReviewedAt: now,
     streak: isCorrect ? (currentProgress?.streak || 0) + 1 : 0,
     correctCount: (currentProgress?.correctCount || 0) + (isCorrect ? 1 : 0),
     incorrectCount: (currentProgress?.incorrectCount || 0) + (!isCorrect ? 1 : 0),
     updatedAt: now,
+    deToTh: updatedDeToTh,
+    thToDe: updatedThToDe,
   };
 
   // 1. Update local storage
