@@ -547,49 +547,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
             {/* Revealed / Evaluated Solution */}
             {isRevealed && (
               <div className="mt-4 pt-4 border-t border-[#3A3A3D]/70 animate-in fade-in duration-200">
-                {/* User's typed input during evaluation (centered, same font size as answer) */}
-                {isEvaluated && isTyping && (
-                  <div className="mb-4 text-center">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-2 bg-[#202022] border border-[#3A3A3D]">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">
-                        Deine Eingabe
-                      </span>
-                      <span className="text-[#8E8E93]">·</span>
-                      {isTypingCorrect ? (
-                        <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Richtig</span>
-                          <span>😊</span>
-                        </span>
-                      ) : (
-                        <span className="text-[#FFA040] flex items-center gap-1 font-semibold">
-                          <XCircle className="w-3.5 h-3.5" />
-                          <span>Abweichung</span>
-                          <span>☹️</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <div className={isTypingCorrect ? 'text-emerald-300' : 'text-[#FFA040]'}>
-                      <h3
-                        className={`${
-                          isDeToThai
-                            ? 'text-3xl sm:text-4xl font-thai font-semibold tracking-normal'
-                            : 'text-2xl sm:text-3xl font-bold'
-                        } break-all mb-1`}
-                      >
-                        {userInput.trim() ? (
-                          userInput
-                        ) : (
-                          <span className="text-[#71717A] italic text-base font-normal">
-                            (Keine Eingabe)
-                          </span>
-                        )}
-                      </h3>
-                    </div>
-                  </div>
-                )}
-
+                {/* 1. Solution & Translation (kept together!) */}
                 {isDeToThai ? (
                   <div className="text-center">
                     {isEvaluated && isTyping && (
@@ -605,6 +563,22 @@ export const StudySession: React.FC<StudySessionProps> = ({
                         {vocab.romanization}
                       </p>
                     )}
+                    {/* Audio button for Thai pronunciation */}
+                    <div className="flex items-center justify-center gap-3 mt-2">
+                      <button
+                        type="button"
+                        onClick={handlePlayAudio}
+                        className="p-1.5 rounded-full bg-[#323236] text-[#D1D1D6] hover:text-white hover:bg-[#3E3E42] transition-colors"
+                        title="Aussprache anhören"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                      {isEvaluated && !isTyping && (
+                        <span className="text-xl" title={isTypingCorrect ? 'Richtig' : 'Abweichung'}>
+                          {isTypingCorrect ? '😊' : '☹️'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center">
@@ -616,25 +590,66 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     <h3 className="text-2xl sm:text-3xl font-bold text-white mb-1">
                       {vocab.german}
                     </h3>
+                    <div className="flex items-center justify-center gap-3 mt-2">
+                      <button
+                        type="button"
+                        onClick={handlePlayAudio}
+                        className="p-1.5 rounded-full bg-[#323236] text-[#D1D1D6] hover:text-white hover:bg-[#3E3E42] transition-colors"
+                        title="Aussprache anhören"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                      {isEvaluated && !isTyping && (
+                        <span className="text-xl" title={isTypingCorrect ? 'Richtig' : 'Abweichung'}>
+                          {isTypingCorrect ? '😊' : '☹️'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* Speaker button & feedback icon */}
-                <div className="flex items-center justify-center gap-3 mt-3">
-                  <button
-                    type="button"
-                    onClick={handlePlayAudio}
-                    className="p-2 rounded-full bg-[#323236] text-[#D1D1D6] hover:text-white hover:bg-[#3E3E42] transition-colors"
-                    title="Aussprache anhören"
-                  >
-                    <Volume2 className="w-4 h-4" />
-                  </button>
-                  {isEvaluated && !isTyping && (
-                    <span className="text-xl" title={isTypingCorrect ? 'Richtig' : 'Abweichung'}>
-                      {isTypingCorrect ? '😊' : '☹️'}
-                    </span>
-                  )}
-                </div>
+                {/* 2. User's typed input during evaluation (stands BELOW the solution, centered, same font size) */}
+                {isEvaluated && isTyping && (
+                  <div className="mt-3.5 pt-3 border-t border-[#3A3A3D]/50 text-center">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold mb-1.5 bg-[#202022] border border-[#3A3A3D]">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">
+                        Deine Eingabe
+                      </span>
+                      <span className="text-[#8E8E93]">·</span>
+                      {isTypingCorrect ? (
+                        <span className="text-emerald-400 flex items-center gap-1 font-semibold text-xs">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Richtig</span>
+                          <span>😊</span>
+                        </span>
+                      ) : (
+                        <span className="text-[#FFA040] flex items-center gap-1 font-semibold text-xs">
+                          <XCircle className="w-3 h-3" />
+                          <span>Abweichung</span>
+                          <span>☹️</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className={isTypingCorrect ? 'text-emerald-300' : 'text-[#FFA040]'}>
+                      <h3
+                        className={`${
+                          isDeToThai
+                            ? 'text-3xl sm:text-4xl font-thai font-semibold tracking-normal'
+                            : 'text-2xl sm:text-3xl font-bold'
+                        } break-all mb-0.5`}
+                      >
+                        {userInput.trim() ? (
+                          userInput
+                        ) : (
+                          <span className="text-[#71717A] italic text-base font-normal">
+                            (Keine Eingabe)
+                          </span>
+                        )}
+                      </h3>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
